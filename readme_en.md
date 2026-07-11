@@ -154,7 +154,7 @@ If this project helps you, feel free to buy me a coffee ❤️
 
 ## ⭐ Star Support
 
-If you find it useful, please give the project a **Star** — it's the greatest encouragement for the author!
+If you find it useful, please give the project a **[Star](https://github.com/vfaner/sql-optimizer-tool)** — it's the greatest encouragement for the author!
 
 ## 📄 License
 

@@ -154,7 +154,7 @@ sql-optimizer-tool/
 
 ## ⭐ Star 支持
 
-觉得好用的话，欢迎给项目点个 **Star** 支持一下，这是对作者最大的鼓励！
+觉得好用的话，欢迎给项目点个 **[Star](https://github.com/vfaner/sql-optimizer-tool)** 支持一下，这是对作者最大的鼓励！
 
 ## 📄 许可证
 
