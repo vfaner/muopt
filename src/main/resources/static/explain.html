@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='10' width='48' height='44' rx='6' fill='url(%23g)'/%3E%3Cpath d='M18 40 L28 28 L36 34 L46 20' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <title>SQL优化工具 - SQL执行计划</title>
+    <link rel="stylesheet" href="/libs/element-plus.index.css">
+    <link rel="stylesheet" href="/common.css">
+    <script src="/libs/vue.global.prod.js"></script>
+    <script src="/libs/element-plus.index.full.min.js"></script>
+    <script src="/libs/axios.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <div class="app-container">
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h1>SQL优化工具</h1>
+                    <p>智能索引建议与执行计划分析</p>
+                </div>
+                <nav class="menu">
+                    <a href="/manual.html" class="menu-item">
+                        <span class="menu-icon">✏️</span><span>手工优化</span>
+                    </a>
+                    <a href="/auto.html" class="menu-item">
+                        <span class="menu-icon">🔍</span><span>扫描优化</span>
+                    </a>
+                    <a href="/explain.html" class="menu-item active">
+                        <span class="menu-icon">📊</span><span>SQL执行计划</span>
+                    </a>
+                    <a href="/datasource.html" class="menu-item">
+                        <span class="menu-icon">🔗</span><span>配置数据源</span>
+                    </a>
+                    <a href="/donate.html" class="menu-item">
+                        <span class="menu-icon">☕</span><span>打赏支持</span>
+                    </a>
+                </nav>
+            </aside>
+
+            <main class="main-content">
+                <div class="page-header">
+                    <h2>SQL执行计划</h2>
+                    <p>连接数据源后执行 EXPLAIN，展示执行计划明细并评估成本</p>
+                </div>
+
+                <!-- 未配置数据源提示 -->
+                <div v-if="!dsConnected" class="content-card">
+                    <div class="empty-state">
+                        <div class="empty-icon">🔒</div>
+                        <div style="font-size:16px;color:#666;margin-bottom:8px;">未配置数据源</div>
+                        <div style="color:#999;margin-bottom:20px;">执行计划分析需要连接真实数据库，请先配置数据源再进行使用</div>
+                        <el-button type="primary" @click="goDataSource">🔗 前往配置数据源</el-button>
+                    </div>
+                </div>
+
+                <!-- 已配置：执行计划分析 -->
+                <template v-else>
+                    <div class="ds-banner connected">
+                        <span>✅</span>
+                        <span>已连接数据源（{{ dsInfo }}），可执行 EXPLAIN 分析</span>
+                    </div>
+
+                    <div class="content-card">
+                        <div class="form-section">
+                            <div class="form-section-title">查询 SQL</div>
+                            <el-input
+                                v-model="sql"
+                                type="textarea"
+                                :rows="8"
+                                placeholder="输入要分析执行计划的 SELECT 查询，例如：&#10;SELECT * FROM orders WHERE status = 1 AND create_time > '2024-01-01';"
+                            ></el-input>
+                        </div>
+                        <div class="button-group">
+                            <el-button type="primary" size="large" @click="doExplain" :loading="loading">
+                                📊 分析执行计划
+                            </el-button>
+                            <el-button size="large" @click="clearAll">清空</el-button>
+                        </div>
+                    </div>
+
+                    <!-- 执行计划结果 -->
+                    <div v-if="result" class="content-card">
+                        <!-- 成本概览 -->
+                        <div class="form-section-title">成本评估</div>
+                        <div style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
+                            <div class="stat-box" :class="'cost-' + (result.costLevel || 'unknown').toLowerCase()">
+                                <div class="stat-label">成本等级</div>
+                                <div class="stat-value">{{ costLevelText(result.costLevel) }}</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-label">估算成本</div>
+                                <div class="stat-value">{{ result.totalCost != null ? result.totalCost.toFixed(2) : '—' }}</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-label">预估扫描行数</div>
+                                <div class="stat-value">{{ result.estimatedRows != null ? result.estimatedRows : '—' }}</div>
+                            </div>
+                        </div>
+
+                        <!-- 执行计划明细表格（类 Navicat） -->
+                        <div class="form-section-title">执行计划明细</div>
+                        <el-table :data="tableData" border stripe style="width:100%;margin-bottom:20px;" max-height="400">
+                            <el-table-column
+                                v-for="h in result.headers"
+                                :key="h"
+                                :prop="h"
+                                :label="h"
+                                min-width="120"
+                                show-overflow-tooltip
+                            ></el-table-column>
+                        </el-table>
+
+                        <!-- 索引建议（仅高成本时给出） -->
+                        <div v-if="result.indexSuggestions && result.indexSuggestions.length > 0" class="form-section">
+                            <div class="form-section-title">索引建议</div>
+                            <div class="legend">
+                                <span><span class="dot orange"></span>建议创建</span>
+                                <span><span class="dot gray"></span>已存在</span>
+                            </div>
+                            <div v-for="(idx, i) in result.indexSuggestions" :key="i" class="index-card">
+                                <div class="index-card-header">
+                                    <span class="index-meta">
+                                        📌 表 <strong>{{ idx.tableName }}</strong> · 列（{{ idx.columns.join(', ') }}）— {{ idx.reason }}
+                                        <span class="index-tag" :class="idx.status.toLowerCase()">{{ tagText(idx.status) }}</span>
+                                    </span>
+                                    <el-button v-if="idx.status !== 'EXISTS'" size="small" text @click="copyText(idx.createSql)">📋 复制</el-button>
+                                </div>
+                                <div class="index-sql" :class="idx.status.toLowerCase()">{{ idx.createSql }}</div>
+                            </div>
+                        </div>
+
+                        <!-- 分析结论 -->
+                        <ul v-if="result.tips && result.tips.length > 0" class="tips-list">
+                            <li v-for="(tip, i) in result.tips" :key="i">{{ tip }}</li>
+                        </ul>
+                    </div>
+                </template>
+            </main>
+        </div>
+    </div>
+
+    <style>
+        .stat-box {
+            flex: 1;
+            min-width: 140px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 16px 20px;
+            border: 1px solid #eee;
+        }
+        .stat-label { font-size: 12px; color: #999; margin-bottom: 6px; }
+        .stat-value { font-size: 22px; font-weight: 700; color: #333; }
+        .cost-high { background: #fff2f0; border-color: #ffccc7; }
+        .cost-high .stat-value { color: #cf1322; }
+        .cost-medium { background: #fffbe6; border-color: #ffe58f; }
+        .cost-medium .stat-value { color: #d48806; }
+        .cost-low { background: #f6ffed; border-color: #b7eb8f; }
+        .cost-low .stat-value { color: #389e0d; }
+    </style>
+
+    <script>
+        const { createApp, ref, computed, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const sql = ref('');
+                const result = ref(null);
+                const loading = ref(false);
+                const dsConnected = ref(false);
+                const dsInfo = ref('');
+
+                const fetchStatus = async () => {
+                    try {
+                        const resp = await axios.get('/api/status');
+                        if (resp.data.code === 200) {
+                            dsConnected.value = resp.data.data.dataSourceConnected;
+                            dsInfo.value = resp.data.data.dataSourceInfo || '';
+                        }
+                    } catch (e) { /* 忽略 */ }
+                };
+
+                // 把 ExplainRow.columns 展平成 el-table 可用的行对象
+                const tableData = computed(() => {
+                    if (!result.value || !result.value.rows) return [];
+                    return result.value.rows.map(row => {
+                        const obj = {};
+                        for (const key in row.columns) {
+                            obj[key] = row.columns[key];
+                        }
+                        return obj;
+                    });
+                });
+
+                const doExplain = async () => {
+                    if (!sql.value.trim()) {
+                        ElementPlus.ElMessage.warning('请输入 SQL 语句');
+                        return;
+                    }
+                    loading.value = true;
+                    try {
+                        const resp = await axios.post('/api/explain', { sql: sql.value });
+                        if (resp.data.code === 200) {
+                            result.value = resp.data.data;
+                            ElementPlus.ElMessage.success('执行计划分析完成');
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '分析失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('分析失败: ' + (e.response?.data?.message || e.message));
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const costLevelText = (level) => {
+                    switch (level) {
+                        case 'HIGH': return '偏高';
+                        case 'MEDIUM': return '中等';
+                        case 'LOW': return '较低';
+                        default: return '未知';
+                    }
+                };
+
+                const tagText = (status) => {
+                    if (status === 'EXISTS') return '已存在';
+                    if (status === 'MISSING') return '建议创建';
+                    return '未核实';
+                };
+
+                const copyText = async (text) => {
+                    if (!text) return;
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        ElementPlus.ElMessage.success('已复制到剪贴板');
+                    } catch (e) {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        ElementPlus.ElMessage.success('已复制到剪贴板');
+                    }
+                };
+
+                const goDataSource = () => { window.location.href = '/datasource.html'; };
+                const clearAll = () => { sql.value = ''; result.value = null; };
+
+                onMounted(fetchStatus);
+
+                return { sql, result, loading, dsConnected, dsInfo, tableData,
+                    doExplain, costLevelText, tagText, copyText, goDataSource, clearAll };
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html>

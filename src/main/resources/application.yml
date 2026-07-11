@@ -1,0 +1,23 @@
+server:
+  port: 8090
+
+spring:
+  web:
+    resources:
+      static-locations: classpath:/static/
+
+# AI 接口配置（阿里云百炼 OpenAI 兼容接口，可选）
+ai:
+  api:
+    # 阿里云百炼 API Key（在 https://bailian.console.aliyun.com 获取）
+    key: ${AI_API_KEY:YOUR_BAILIAN_API_KEY}
+    # 百炼 OpenAI 兼容接口地址
+    base-url: ${AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
+    # 文本模型（用于 SQL 深度优化）
+    model: ${AI_MODEL:qwen-max-latest}
+
+logging:
+  level:
+    com.sqloptimizer: DEBUG
+  file:
+    name: logs/sql-optimizer.log

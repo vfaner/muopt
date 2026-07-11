@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='10' width='48' height='44' rx='6' fill='url(%23g)'/%3E%3Cpath d='M18 40 L28 28 L36 34 L46 20' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <title>SQL优化工具 - 扫描优化</title>
+    <link rel="stylesheet" href="/libs/element-plus.index.css">
+    <link rel="stylesheet" href="/common.css">
+    <script src="/libs/vue.global.prod.js"></script>
+    <script src="/libs/element-plus.index.full.min.js"></script>
+    <script src="/libs/axios.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <div class="app-container">
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h1>SQL优化工具</h1>
+                    <p>智能索引建议与执行计划分析</p>
+                </div>
+                <nav class="menu">
+                    <a href="/manual.html" class="menu-item">
+                        <span class="menu-icon">✏️</span><span>手工优化</span>
+                    </a>
+                    <a href="/auto.html" class="menu-item active">
+                        <span class="menu-icon">🔍</span><span>扫描优化</span>
+                    </a>
+                    <a href="/explain.html" class="menu-item">
+                        <span class="menu-icon">📊</span><span>SQL执行计划</span>
+                    </a>
+                    <a href="/datasource.html" class="menu-item">
+                        <span class="menu-icon">🔗</span><span>配置数据源</span>
+                    </a>
+                    <a href="/donate.html" class="menu-item">
+                        <span class="menu-icon">☕</span><span>打赏支持</span>
+                    </a>
+                </nav>
+            </aside>
+
+            <main class="main-content">
+                <div class="page-header">
+                    <h2>扫描优化</h2>
+                    <p>选择或输入项目目录，扫描 MyBatis XML、Java 代码、.sql 脚本中的 SQL，逐条给出优化建议与索引建议，并可一键替换</p>
+                </div>
+
+                <div class="ds-banner" :class="dsConnected ? 'connected' : 'disconnected'">
+                    <span>{{ dsConnected ? '✅' : '💡' }}</span>
+                    <span v-if="dsConnected">已配置数据源（{{ dsInfo }}），可进行深度优化：索引存在性检测、冗余索引与小表驱动分析</span>
+                    <span v-else>未配置数据源，索引建议将全部以橙色展示（无法核实是否已存在）。如需深度优化，请前往「配置数据源」</span>
+                </div>
+
+                <div class="content-card">
+                    <div class="form-section">
+                        <div class="form-section-title">项目目录</div>
+                        <el-input v-model="projectPath" placeholder="输入项目绝对路径，例如 /Users/you/projects/my-app">
+                            <template #append>
+                                <el-button @click="openDirPicker">📁 选择目录</el-button>
+                            </template>
+                        </el-input>
+                        <div style="font-size:12px;color:#999;margin-top:6px;">
+                            扫描来源：MyBatis XML（select/insert/update/delete 标签）、Java 代码中的 SQL 字符串、注解中的 SQL（@Select/@Insert/@Update/@Delete/@Query）。自动排除 selectDemo() 这类方法调用，跳过 target/.git/node_modules 等目录。
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title">AI 深度优化</div>
+                        <div class="switch-wrapper">
+                            <el-switch v-model="enableAi"></el-switch>
+                            <span class="switch-label">启用 AI 深度优化（需配置 API Key）</span>
+                        </div>
+                    </div>
+
+                    <div class="button-group">
+                        <el-button type="primary" size="large" @click="doScan" :loading="loading">
+                            🔍 扫描项目
+                        </el-button>
+                        <el-button size="large" @click="clearAll">清空</el-button>
+                    </div>
+                </div>
+
+                <!-- 扫描结果 -->
+                <div v-if="items.length > 0" class="content-card">
+                    <div class="form-section-title" style="margin-bottom:16px;">
+                        扫描结果（共 {{ items.length }} 条 SQL）
+                        <span class="legend" style="display:inline-flex;margin-left:16px;margin-bottom:0;">
+                            <span><span class="dot orange"></span>建议创建/未核实</span>
+                            <span><span class="dot gray"></span>已存在</span>
+                        </span>
+                    </div>
+
+                    <el-collapse v-model="activeNames">
+                        <el-collapse-item v-for="(r, i) in items" :key="r.id" :name="i">
+                            <template #title>
+                                <span style="font-family:monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60vw;">
+                                    <el-tag size="small" :type="sourceTagType(r.sourceType)" style="margin-right:8px;">{{ sourceLabel(r.sourceType) }}</el-tag>
+                                    {{ r.relativePath }}:{{ r.startLine }}
+                                </span>
+                                <el-tag v-if="r.replaced" size="small" type="success" style="margin-left:10px;">已替换</el-tag>
+                                <el-tag size="small" :type="countMissing(r) > 0 ? 'warning' : 'info'" style="margin-left:10px;">
+                                    {{ r.indexSuggestions ? r.indexSuggestions.length : 0 }} 条索引建议
+                                </el-tag>
+                            </template>
+
+                            <!-- 文件定位 -->
+                            <div class="file-locator">
+                                📄 <strong>{{ r.filePath }}</strong>
+                                <span style="color:#11998e;">（第 {{ r.startLine }}<span v-if="r.endLine > r.startLine"> - {{ r.endLine }}</span> 行）</span>
+                            </div>
+
+                            <!-- 源 SQL -->
+                            <div class="result-area">
+                                <div class="result-header">
+                                    <span class="result-title">源 SQL</span>
+                                    <el-button size="small" text @click="copyText(r.sourceSql)">📋 复制</el-button>
+                                </div>
+                                <div class="result-content">{{ r.sourceSql }}</div>
+                            </div>
+
+                            <!-- 优化后 SQL -->
+                            <div class="result-area">
+                                <div class="result-header">
+                                    <span class="result-title">优化后 SQL
+                                        <el-tag v-if="r.aiOptimized" size="small" type="success" style="margin-left:8px;">AI</el-tag>
+                                    </span>
+                                    <el-button type="primary" size="small" @click="copyText(r.optimizedSql)">📋 复制</el-button>
+                                </div>
+                                <div class="result-content" v-if="r.optimizedSql === r.sourceSql" style="color:#999;">（无改写，SQL 已较优或未启用 AI 改写）</div>
+                                <div class="result-content" v-else>{{ r.optimizedSql }}</div>
+                            </div>
+
+                            <!-- 索引建议 -->
+                            <div v-if="r.indexSuggestions && r.indexSuggestions.length > 0" style="margin-top:12px;">
+                                <div class="result-title" style="margin-bottom:8px;">建议添加的索引</div>
+                                <div v-for="(idx, j) in r.indexSuggestions" :key="j" class="index-card">
+                                    <div class="index-card-header">
+                                        <span class="index-meta">
+                                            📌 表 <strong>{{ idx.tableName }}</strong> · 列（{{ idx.columns.join(', ') }}）— {{ idx.reason }}
+                                            <span class="index-tag" :class="idx.status.toLowerCase()">{{ tagText(idx.status) }}</span>
+                                        </span>
+                                        <el-button v-if="idx.status !== 'EXISTS'" size="small" text @click="copyText(idx.createSql)">📋 复制</el-button>
+                                    </div>
+                                    <div class="index-sql" :class="idx.status.toLowerCase()">{{ idx.createSql }}</div>
+                                </div>
+                            </div>
+
+                            <ul v-if="r.tips && r.tips.length > 0" class="tips-list">
+                                <li v-for="(tip, k) in r.tips" :key="k">{{ tip }}</li>
+                            </ul>
+
+                            <!-- 替换 -->
+                            <div class="button-group" style="margin-top:16px;">
+                                <el-button
+                                    type="primary"
+                                    size="small"
+                                    :disabled="r.replaced || r.optimizedSql === r.sourceSql"
+                                    @click="doReplace(r, i)">
+                                    🔁 替换到源文件
+                                </el-button>
+                                <span v-if="r.optimizedSql === r.sourceSql" style="font-size:12px;color:#999;align-self:center;">无改写，无需替换</span>
+                            </div>
+                        </el-collapse-item>
+                    </el-collapse>
+                </div>
+
+                <div v-else-if="scanned && !loading" class="content-card">
+                    <div class="empty-state">
+                        <div class="empty-icon">🔍</div>
+                        <div>未在该目录中扫描到可识别的 SQL 语句</div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- 目录选择器 -->
+        <el-dialog v-model="dirDialogVisible" title="选择项目目录" width="640px" top="8vh">
+            <div class="dir-picker">
+                <div class="dir-path-bar">
+                    <span style="color:#666;">当前：</span>
+                    <span class="dir-current">{{ dirCurrent || '（磁盘根目录）' }}</span>
+                </div>
+                <div class="dir-toolbar">
+                    <el-button size="small" :disabled="!dirParent" @click="loadDirs(dirParent)">⬆️ 上级</el-button>
+                    <el-button size="small" @click="loadDirs(dirHome)">🏠 主目录</el-button>
+                    <el-button size="small" @click="loadDirs('')">💽 根目录</el-button>
+                </div>
+                <div class="dir-list" v-loading="dirLoading">
+                    <div v-if="dirEntries.length === 0" class="dir-empty">（无子目录）</div>
+                    <div v-for="d in dirEntries" :key="d.path" class="dir-item"
+                         :class="{ selected: dirSelected === d.path }"
+                         @click="dirSelected = d.path"
+                         @dblclick="loadDirs(d.path)">
+                        📁 <span>{{ d.name }}</span>
+                    </div>
+                </div>
+                <div class="dir-hint">单击选中目录，双击进入子目录</div>
+            </div>
+            <template #footer>
+                <el-button @click="dirDialogVisible = false">取消</el-button>
+                <el-button type="primary" :disabled="!pickable" @click="confirmDir">
+                    选择此目录
+                </el-button>
+            </template>
+        </el-dialog>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const projectPath = ref('');
+                const enableAi = ref(false);
+                const items = ref([]);
+                const activeNames = ref([]);
+                const loading = ref(false);
+                const scanned = ref(false);
+                const dsConnected = ref(false);
+                const dsInfo = ref('');
+
+                // ---- 目录选择器 ----
+                const dirDialogVisible = ref(false);
+                const dirLoading = ref(false);
+                const dirCurrent = ref(null);
+                const dirParent = ref(null);
+                const dirHome = ref('');
+                const dirEntries = ref([]);
+                const dirSelected = ref(null);
+                // 可确认：选中了子目录，或已进入某个目录（可直接选当前目录）
+                const pickable = computed(() => !!dirSelected.value || !!dirCurrent.value);
+
+                const loadDirs = async (path) => {
+                    dirLoading.value = true;
+                    dirSelected.value = null;
+                    try {
+                        const resp = await axios.get('/api/scan/dirs', { params: { path: path || '' } });
+                        if (resp.data.code === 200) {
+                            const d = resp.data.data;
+                            dirCurrent.value = d.current;
+                            dirParent.value = d.parent;
+                            dirHome.value = d.home;
+                            dirEntries.value = d.dirs || [];
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '读取目录失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('读取目录失败: ' + (e.response?.data?.message || e.message));
+                    } finally {
+                        dirLoading.value = false;
+                    }
+                };
+
+                const openDirPicker = () => {
+                    dirDialogVisible.value = true;
+                    // 打开时定位到已填路径，否则主目录
+                    const start = projectPath.value.trim() || '';
+                    loadDirs(start);
+                };
+
+                const confirmDir = () => {
+                    // 优先用选中的子目录，否则用当前所在目录
+                    projectPath.value = dirSelected.value || dirCurrent.value || '';
+                    dirDialogVisible.value = false;
+                };
+
+                const fetchStatus = async () => {
+                    try {
+                        const resp = await axios.get('/api/status');
+                        if (resp.data.code === 200) {
+                            dsConnected.value = resp.data.data.dataSourceConnected;
+                            dsInfo.value = resp.data.data.dataSourceInfo || '';
+                        }
+                    } catch (e) { /* 忽略 */ }
+                };
+
+                const doScan = async () => {
+                    if (!projectPath.value.trim()) {
+                        ElementPlus.ElMessage.warning('请输入项目目录');
+                        return;
+                    }
+                    loading.value = true;
+                    scanned.value = false;
+                    try {
+                        const resp = await axios.post('/api/scan', {
+                            projectPath: projectPath.value.trim(),
+                            enableAi: enableAi.value
+                        });
+                        if (resp.data.code === 200) {
+                            items.value = resp.data.data;
+                            activeNames.value = items.value.map((_, i) => i);
+                            scanned.value = true;
+                            ElementPlus.ElMessage.success(`扫描完成，共识别 ${items.value.length} 条 SQL`);
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '扫描失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('扫描失败: ' + (e.response?.data?.message || e.message));
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const doReplace = async (r, i) => {
+                    try {
+                        await ElementPlus.ElMessageBox.confirm(
+                            `将替换文件 ${r.relativePath} 中第 ${r.startLine} 行的 SQL，原文件会自动备份为 .bak。是否继续？`,
+                            '确认替换', { type: 'warning', confirmButtonText: '替换', cancelButtonText: '取消' }
+                        );
+                    } catch (e) {
+                        return; // 用户取消
+                    }
+                    try {
+                        const resp = await axios.post('/api/scan/replace', {
+                            item: r,
+                            optimizedSql: r.optimizedSql
+                        });
+                        if (resp.data.code === 200) {
+                            items.value[i].replaced = true;
+                            ElementPlus.ElMessage.success('替换成功，已生成 .bak 备份');
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '替换失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('替换失败: ' + (e.response?.data?.message || e.message));
+                    }
+                };
+
+                const sourceLabel = (t) => ({
+                    MYBATIS_XML: 'MyBatis', JAVA_STRING: 'Java', JAVA_ANNOTATION: '注解', SQL_FILE: 'SQL'
+                }[t] || t);
+
+                const sourceTagType = (t) => ({
+                    MYBATIS_XML: 'success', JAVA_STRING: 'warning', JAVA_ANNOTATION: 'danger', SQL_FILE: 'info'
+                }[t] || 'info');
+
+                const countMissing = (r) => {
+                    if (!r.indexSuggestions) return 0;
+                    return r.indexSuggestions.filter(x => x.status !== 'EXISTS').length;
+                };
+
+                const tagText = (status) => {
+                    if (status === 'EXISTS') return '已存在';
+                    if (status === 'MISSING') return '建议创建';
+                    return '未核实';
+                };
+
+                const copyText = async (text) => {
+                    if (!text) return;
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        ElementPlus.ElMessage.success('已复制到剪贴板');
+                    } catch (e) {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        ElementPlus.ElMessage.success('已复制到剪贴板');
+                    }
+                };
+
+                const clearAll = () => {
+                    projectPath.value = '';
+                    items.value = [];
+                    scanned.value = false;
+                };
+
+                onMounted(fetchStatus);
+
+                return { projectPath, enableAi, items, activeNames, loading, scanned,
+                    dsConnected, dsInfo,
+                    dirDialogVisible, dirLoading, dirCurrent, dirParent, dirHome,
+                    dirEntries, dirSelected, pickable,
+                    openDirPicker, loadDirs, confirmDir,
+                    doScan, doReplace, sourceLabel, sourceTagType,
+                    countMissing, tagText, copyText, clearAll };
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html>

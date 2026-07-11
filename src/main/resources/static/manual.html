@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='10' width='48' height='44' rx='6' fill='url(%23g)'/%3E%3Cpath d='M18 40 L28 28 L36 34 L46 20' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <title>SQL优化工具 - 手工优化</title>
+    <link rel="stylesheet" href="/libs/element-plus.index.css">
+    <link rel="stylesheet" href="/common.css">
+    <script src="/libs/vue.global.prod.js"></script>
+    <script src="/libs/element-plus.index.full.min.js"></script>
+    <script src="/libs/axios.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <div class="app-container">
+            <!-- 左侧菜单 -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h1>SQL优化工具</h1>
+                    <p>智能索引建议与执行计划分析</p>
+                </div>
+                <nav class="menu">
+                    <a href="/manual.html" class="menu-item active">
+                        <span class="menu-icon">✏️</span><span>手工优化</span>
+                    </a>
+                    <a href="/auto.html" class="menu-item">
+                        <span class="menu-icon">🔍</span><span>扫描优化</span>
+                    </a>
+                    <a href="/explain.html" class="menu-item">
+                        <span class="menu-icon">📊</span><span>SQL执行计划</span>
+                    </a>
+                    <a href="/datasource.html" class="menu-item">
+                        <span class="menu-icon">🔗</span><span>配置数据源</span>
+                    </a>
+                    <a href="/donate.html" class="menu-item">
+                        <span class="menu-icon">☕</span><span>打赏支持</span>
+                    </a>
+                </nav>
+            </aside>
+
+            <!-- 主内容区 -->
+            <main class="main-content">
+                <div class="page-header">
+                    <h2>手工优化</h2>
+                    <p>粘贴单条查询 SQL，智能分析并给出索引建议与优化改写</p>
+                </div>
+
+                <!-- 数据源状态横幅 -->
+                <div class="ds-banner" :class="dsConnected ? 'connected' : 'disconnected'">
+                    <span>{{ dsConnected ? '✅' : '💡' }}</span>
+                    <span v-if="dsConnected">已配置数据源（{{ dsInfo }}），可进行深度优化：索引存在性检测、冗余索引与小表驱动分析</span>
+                    <span v-else>未配置数据源，索引建议将全部以橙色展示（无法核实是否已存在）。如需深度优化，请前往「配置数据源」</span>
+                </div>
+
+                <div class="content-card">
+                    <!-- SQL 输入 -->
+                    <div class="form-section">
+                        <div class="form-section-title">SQL 输入</div>
+                        <el-input
+                            v-model="sql"
+                            type="textarea"
+                            :rows="8"
+                            placeholder="请输入或粘贴要优化的查询 SQL，例如：&#10;SELECT * FROM orders o JOIN users u ON o.user_id = u.id WHERE o.status = 1 AND o.create_time > '2024-01-01' ORDER BY o.create_time;"
+                        ></el-input>
+                    </div>
+
+                    <!-- AI 优化开关 -->
+                    <div class="form-section">
+                        <div class="form-section-title">AI 深度优化</div>
+                        <div class="switch-wrapper">
+                            <el-switch v-model="enableAi"></el-switch>
+                            <span class="switch-label">启用 AI 深度优化（需配置 API Key，对 SQL 进行智能改写）</span>
+                        </div>
+                    </div>
+
+                    <div class="button-group">
+                        <el-button type="primary" size="large" @click="doOptimize" :loading="loading">
+                            🚀 开始优化
+                        </el-button>
+                        <el-button size="large" @click="clearAll">清空</el-button>
+                    </div>
+                </div>
+
+                <!-- 优化结果 -->
+                <div v-if="result" class="content-card">
+                    <!-- 优化后 SQL -->
+                    <div class="result-area" v-if="result.aiOptimized || result.optimizedSql !== result.sourceSql">
+                        <div class="result-header">
+                            <span class="result-title">
+                                优化后的 SQL
+                                <el-tag v-if="result.aiOptimized" size="small" type="success" style="margin-left:8px;">AI 优化</el-tag>
+                            </span>
+                            <el-button type="primary" size="small" @click="copyText(result.optimizedSql)">📋 复制</el-button>
+                        </div>
+                        <div class="result-content">{{ result.optimizedSql }}</div>
+                    </div>
+
+                    <!-- 索引建议 -->
+                    <div class="form-section" style="margin-top: 20px;">
+                        <div class="form-section-title">
+                            索引建议
+                            <el-tag v-if="result.deepAnalyzed" size="small" type="success" style="margin-left:10px;">已深度检测</el-tag>
+                            <el-tag v-else size="small" type="warning" style="margin-left:10px;">未连接数据源</el-tag>
+                        </div>
+                        <div class="legend">
+                            <span><span class="dot orange"></span>橙色 = 建议创建 / 未核实</span>
+                            <span><span class="dot gray"></span>灰色 = 已存在，无需创建</span>
+                        </div>
+
+                        <div v-if="result.indexSuggestions && result.indexSuggestions.length > 0">
+                            <div v-for="(idx, i) in result.indexSuggestions" :key="i" class="index-card">
+                                <div class="index-card-header">
+                                    <span class="index-meta">
+                                        📌 表 <strong>{{ idx.tableName }}</strong> · 列（{{ idx.columns.join(', ') }}）
+                                        <span class="index-meta">— {{ idx.reason }}</span>
+                                        <span class="index-tag" :class="idx.status.toLowerCase()">
+                                            {{ tagText(idx.status) }}
+                                        </span>
+                                    </span>
+                                    <el-button v-if="idx.status !== 'EXISTS'" size="small" text @click="copyText(idx.createSql)">
+                                        📋 复制
+                                    </el-button>
+                                </div>
+                                <div class="index-sql" :class="idx.status.toLowerCase()">{{ idx.createSql }}</div>
+                                <div v-if="idx.status === 'EXISTS'" style="font-size:12px;color:#999;margin-top:6px;">
+                                    ℹ️ 已被现有索引「{{ idx.existingIndexName }}」覆盖
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else class="empty-state" style="padding:20px;">
+                            未解析出可优化的索引列
+                        </div>
+                    </div>
+
+                    <!-- 冗余索引 -->
+                    <div v-if="result.redundantIndexes && result.redundantIndexes.length > 0" class="redundant-list">
+                        <div style="font-weight:600;color:#cf1322;margin-bottom:8px;">🗑️ 冗余索引建议删除</div>
+                        <div v-for="(r, i) in result.redundantIndexes" :key="i" class="r-item">{{ r }}</div>
+                    </div>
+
+                    <!-- 优化提示 -->
+                    <ul v-if="result.tips && result.tips.length > 0" class="tips-list">
+                        <li v-for="(tip, i) in result.tips" :key="i">{{ tip }}</li>
+                    </ul>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const sql = ref('');
+                const enableAi = ref(false);
+                const result = ref(null);
+                const loading = ref(false);
+                const dsConnected = ref(false);
+                const dsInfo = ref('');
+
+                const fetchStatus = async () => {
+                    try {
+                        const resp = await axios.get('/api/status');
+                        if (resp.data.code === 200) {
+                            dsConnected.value = resp.data.data.dataSourceConnected;
+                            dsInfo.value = resp.data.data.dataSourceInfo || '';
+                        }
+                    } catch (e) { /* 忽略 */ }
+                };
+
+                const doOptimize = async () => {
+                    if (!sql.value.trim()) {
+                        ElementPlus.ElMessage.warning('请输入 SQL 语句');
+                        return;
+                    }
+                    loading.value = true;
+                    try {
+                        const resp = await axios.post('/api/optimize', {
+                            sql: sql.value,
+                            enableAi: enableAi.value
+                        });
+                        if (resp.data.code === 200) {
+                            result.value = resp.data.data;
+                            ElementPlus.ElMessage.success('优化完成');
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '优化失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('优化失败: ' + (e.response?.data?.message || e.message));
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const tagText = (status) => {
+                    if (status === 'EXISTS') return '已存在';
+                    if (status === 'MISSING') return '建议创建';
+                    return '未核实';
+                };
+
+                const copyText = async (text) => {
+                    if (!text) return;
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        ElementPlus.ElMessage.success('已复制到剪贴板');
+                    } catch (e) {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        ElementPlus.ElMessage.success('已复制到剪贴板');
+                    }
+                };
+
+                const clearAll = () => {
+                    sql.value = '';
+                    result.value = null;
+                };
+
+                onMounted(fetchStatus);
+
+                return { sql, enableAi, result, loading, dsConnected, dsInfo, doOptimize, tagText, copyText, clearAll };
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html>
