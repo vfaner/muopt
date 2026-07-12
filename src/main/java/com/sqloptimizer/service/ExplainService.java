@@ -1,8 +1,11 @@
 package com.sqloptimizer.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sqloptimizer.common.ExplainResult;
 import com.sqloptimizer.common.ExplainRow;
 import com.sqloptimizer.common.IndexSuggestion;
+import com.sqloptimizer.common.PlanNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -20,6 +23,7 @@ public class ExplainService {
 
     private final DataSourceService dataSourceService;
     private final IndexAnalyzerService indexAnalyzer;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** 成本阈值：超过则认为偏高，建议加索引 */
     private static final double HIGH_COST_THRESHOLD = 10000d;
@@ -48,6 +52,7 @@ public class ExplainService {
         String explainSql = buildExplainSql(dbType, sql.trim());
 
         ExplainResult result = new ExplainResult();
+        result.setDbType(dbType);
         try (Connection conn = dataSourceService.getConnection();
              Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery(explainSql)) {
@@ -73,6 +78,12 @@ public class ExplainService {
 
             // 解析成本与行数
             parseCostAndRows(dbType, result);
+
+            // MySQL 系：用 EXPLAIN FORMAT=JSON 获取真实成本(query_cost)与结构化执行计划树
+            if (isMysqlFamily(dbType)) {
+                enrichWithJsonPlan(conn, sql.trim(), result);
+            }
+
             evaluate(result, sql.trim());
         } catch (Exception e) {
             log.error("执行计划分析失败", e);
@@ -92,6 +103,188 @@ public class ExplainService {
             case "dameng", "dm" -> "EXPLAIN " + sql;
             default -> "EXPLAIN " + sql;
         };
+    }
+
+    private boolean isMysqlFamily(String dbType) {
+        return dbType.equals("mysql") || dbType.equals("oceanbase") || dbType.equals("tidb");
+    }
+
+    /**
+     * MySQL 系专用：执行 EXPLAIN FORMAT=JSON，解析真实成本与结构化执行计划树。
+     * 兼容 MySQL 8.0.16+ 的新 TREE 格式（query_plan + inputs）。失败时静默降级（仍有表格视图）。
+     */
+    private void enrichWithJsonPlan(Connection conn, String sql, ExplainResult result) {
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("EXPLAIN FORMAT=JSON " + sql)) {
+            if (!rs.next()) {
+                return;
+            }
+            String json = rs.getString(1);
+            if (json == null || json.isBlank()) {
+                return;
+            }
+            result.setRawJson(json);
+            JsonNode root = objectMapper.readTree(json);
+
+            // 新格式（MySQL 8.0.16+）：{ "query_plan": { ... inputs ... } }
+            if (root.has("query_plan")) {
+                JsonNode top = root.get("query_plan");
+                PlanNode rootNode = parseTreeNode(top);
+                if (rootNode != null) {
+                    result.getPlanTree().add(rootNode);
+                    // 根节点的 estimated_total_cost 即整棵计划的总成本
+                    if (top.hasNonNull("estimated_total_cost")) {
+                        result.setTotalCost(top.get("estimated_total_cost").asDouble());
+                    }
+                    if (top.hasNonNull("estimated_rows")) {
+                        result.setEstimatedRows((long) top.get("estimated_rows").asDouble());
+                    }
+                }
+                return;
+            }
+
+            // 旧格式：{ "query_block": { ... nested_loop ... } }
+            JsonNode queryBlock = root.get("query_block");
+            if (queryBlock != null) {
+                Double cost = extractQueryCost(queryBlock);
+                if (cost != null) {
+                    result.setTotalCost(cost);
+                }
+                PlanNode rootNode = parseQueryBlock(queryBlock);
+                if (rootNode != null) {
+                    result.getPlanTree().add(rootNode);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("EXPLAIN FORMAT=JSON 解析失败（降级为表格视图）: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 递归解析 MySQL 8 新 TREE 格式节点。
+     * 每个节点有 operation / access_type / estimated_rows / estimated_total_cost，
+     * 子节点在 inputs 数组中。
+     */
+    private PlanNode parseTreeNode(JsonNode n) {
+        if (n == null || n.isMissingNode()) {
+            return null;
+        }
+        PlanNode node = new PlanNode();
+        node.setOperation(n.path("operation").asText(""));
+        node.setAccessType(n.path("access_type").asText(""));
+        if (n.hasNonNull("table_name")) {
+            node.setTableName(n.get("table_name").asText());
+            node.setDetail(n.get("table_name").asText());
+        }
+        if (n.hasNonNull("index_name")) {
+            node.setKey(n.get("index_name").asText());
+        }
+        if (n.hasNonNull("estimated_rows")) {
+            node.setRows((long) n.get("estimated_rows").asDouble());
+        }
+        if (n.hasNonNull("estimated_total_cost")) {
+            node.setCost(String.valueOf(n.get("estimated_total_cost").asDouble()));
+        }
+        // 递归子节点
+        JsonNode inputs = n.get("inputs");
+        if (inputs != null && inputs.isArray()) {
+            for (JsonNode child : inputs) {
+                PlanNode c = parseTreeNode(child);
+                if (c != null) {
+                    node.getChildren().add(c);
+                }
+            }
+        }
+        return node;
+    }
+
+    private Double extractQueryCost(JsonNode queryBlock) {
+        JsonNode costInfo = queryBlock.get("cost_info");
+        if (costInfo != null && costInfo.hasNonNull("query_cost")) {
+            try {
+                return Double.parseDouble(costInfo.get("query_cost").asText());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 递归解析 MySQL 旧 JSON 执行计划（8.0.16 之前）。结构大致为：
+     * query_block -> (ordering_operation|grouping_operation)* -> nested_loop[] | table
+     */
+    private PlanNode parseQueryBlock(JsonNode queryBlock) {
+        // 排序 / 分组包裹节点
+        if (queryBlock.has("ordering_operation")) {
+            PlanNode node = new PlanNode();
+            node.setOperation("Order By");
+            PlanNode child = parseQueryBlock(queryBlock.get("ordering_operation"));
+            if (child != null) node.getChildren().add(child);
+            return node;
+        }
+        if (queryBlock.has("grouping_operation")) {
+            PlanNode node = new PlanNode();
+            node.setOperation("Group By");
+            PlanNode child = parseQueryBlock(queryBlock.get("grouping_operation"));
+            if (child != null) node.getChildren().add(child);
+            return node;
+        }
+        if (queryBlock.has("duplicates_removal")) {
+            PlanNode node = new PlanNode();
+            node.setOperation("Distinct");
+            PlanNode child = parseQueryBlock(queryBlock.get("duplicates_removal"));
+            if (child != null) node.getChildren().add(child);
+            return node;
+        }
+        // 多表连接
+        if (queryBlock.has("nested_loop")) {
+            PlanNode join = new PlanNode();
+            join.setOperation("Nested Loop");
+            for (JsonNode item : queryBlock.get("nested_loop")) {
+                if (item.has("table")) {
+                    join.getChildren().add(parseTable(item.get("table")));
+                }
+            }
+            if (join.getChildren().size() == 1) {
+                return join.getChildren().get(0);
+            }
+            return join;
+        }
+        // 单表
+        if (queryBlock.has("table")) {
+            return parseTable(queryBlock.get("table"));
+        }
+        return null;
+    }
+
+    private PlanNode parseTable(JsonNode table) {
+        PlanNode node = new PlanNode();
+        String tableName = table.path("table_name").asText("");
+        String accessType = table.path("access_type").asText("");
+        node.setOperation("Table Scan");
+        node.setTableName(tableName);
+        node.setDetail(tableName);
+        node.setAccessType(accessType);
+        if (table.hasNonNull("key")) {
+            node.setKey(table.get("key").asText());
+        }
+        if (table.hasNonNull("rows_examined_per_scan")) {
+            node.setRows(table.get("rows_examined_per_scan").asLong());
+        } else if (table.hasNonNull("rows")) {
+            node.setRows(table.get("rows").asLong());
+        }
+        JsonNode ci = table.get("cost_info");
+        if (ci != null && ci.hasNonNull("read_cost")) {
+            node.setCost(ci.get("read_cost").asText());
+        }
+        if (table.has("materialized_from_subquery")) {
+            JsonNode sub = table.get("materialized_from_subquery").get("query_block");
+            if (sub != null) {
+                PlanNode child = parseQueryBlock(sub);
+                if (child != null) node.getChildren().add(child);
+            }
+        }
+        return node;
     }
 
     /**

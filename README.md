@@ -13,13 +13,16 @@ SQL 优化工具是一个基于 Spring Boot 3 的 Web 应用，针对给定的�
 - 🎯 **智能索引建议**：基于 JSqlParser 解析 AST，从 WHERE 等值/范围条件、JOIN ON、ORDER BY、GROUP BY 中提取候选列，生成合理的（组合）索引
 - 🎨 **颜色区分状态**：已存在=灰色、缺失/未核实=橙色，一目了然，支持复制粘贴
 - ✏️ **手工优化**：粘贴单条 SQL 即时分析
-- 🔍 **扫描优化**：扫描项目目录，提取 MyBatis XML、Java 代码中的 SQL 字符串、注解中的 SQL（`@Select`/`@Insert`/`@Update`/`@Delete`/`@Query`），逐条分析并支持一键原地替换
+- 🔍 **扫描优化**：扫描项目目录，提取 MyBatis XML、Java 代码中的 SQL 字符串、注解中的 SQL（`@Select`/`@Insert`/`@Update`/`@Delete`/`@Query`），逐条分析并支持一键原地替换（自动 `.bak` 备份）
 - 🤖 **AI 深度优化**（可选）：集成阿里云百炼（通义千问），对 SQL 智能改写
 - 🔗 **配置数据源**（可选）：配置后可进行——
   - 索引存在性检测（区分灰/橙）
   - 冗余索引检测（给出 DROP 建议）
   - 大小表驱动判断（小表驱动大表建议）
-- 📊 **SQL 执行计划**：连接数据源后执行 EXPLAIN，类 Navicat 表格化展示；成本过高才建议加索引，数据量很少则提示无需建立
+- 📊 **SQL 执行计划**：连接数据源后执行 EXPLAIN，提供**表格 / 树形 / 图形**三种视图（类 DBeaver）：
+  - 表格：结构化列 Operation / Object / Rows / Cost / Node Type
+  - 树形 / 图形：按执行计划层级展示节点，按操作类型着色（全表扫描红、索引绿、JOIN 紫等）
+  - 成本过高才建议加索引，数据量很少则提示无需建立
 
 ### 🎨 设计逻辑
 
@@ -28,6 +31,20 @@ SQL 优化工具是一个基于 Spring Boot 3 的 Web 应用，针对给定的�
 | **未配置数据源** | 索引建议全部**橙色**（无法核实是否已存在），可复制 `CREATE INDEX`；执行计划页提示"请先配置数据源" |
 | **已配置数据源** | 索引区分**灰色（已存在）/ 橙色（缺失）**；额外给出冗余索引、大小表驱动建议；可用执行计划分析 |
 | **手工/扫描页头** | 配置数据源后顶部显示"✅ 已配置数据源，可进行深度优化" |
+
+## 🖼️ 功能截图
+
+### ✏️ 手工优化
+![手工优化](docs/sql_yh_sd.png)
+
+### 🔍 扫描优化
+![扫描优化](docs/sql_yh_zd.png)
+
+### 🔗 配置数据源
+![配置数据源](docs/sql_yh_sjy.png)
+
+### 📊 SQL 执行计划
+![SQL执行计划](docs/sql_yh_zx.png)
 
 ## 🛠️ 技术栈
 
@@ -106,10 +123,12 @@ export AI_API_KEY=你的百炼API_Key
 
 ```
 sql-optimizer-tool/
+├── docs/                                     # 功能截图
 ├── src/main/java/com/sqloptimizer/
 │   ├── SqlOptimizerApplication.java         # 启动类（排除默认数据源自动配置）
 │   ├── common/                              # Result / IndexSuggestion / OptimizeResult
-│   │                                        # ExplainResult / ExplainRow / DataSourceConfig / ScanItem
+│   │                                        # ExplainResult / ExplainRow / PlanNode
+│   │                                        # DataSourceConfig / ScanItem
 │   ├── config/                              # 全局异常处理
 │   ├── controller/
 │   │   ├── OptimizeController.java          # 优化 + 批量 + 状态
@@ -121,7 +140,7 @@ sql-optimizer-tool/
 │       ├── SqlOptimizerService.java         # 优化编排：组合规则/数据源/AI
 │       ├── ProjectScanService.java          # 项目扫描与原地替换
 │       ├── DataSourceService.java           # 连接/索引检测/大小表/冗余索引
-│       ├── ExplainService.java              # EXPLAIN 执行与成本评估
+│       ├── ExplainService.java              # EXPLAIN 执行、计划树解析与成本评估
 │       └── AiService.java                   # 百炼 AI 服务
 └── src/main/resources/
     ├── application.yml
@@ -141,14 +160,15 @@ sql-optimizer-tool/
 
 1. **数据源为内存态**：配置的连接仅保存在内存中，应用重启后需重新配置；密码不会回传前端。
 2. **执行计划安全**：PostgreSQL 系使用 `EXPLAIN`（不含 ANALYZE），不会真实执行写操作。
-3. **索引匹配规则**：检测已存在索引时采用"最左前缀匹配"，与数据库索引使用逻辑一致。
-4. **成本阈值**：执行计划成本 ≥10000 判为偏高才给索引建议；预估扫描行数 ≤500 判为数据量小，提示无需建索引（阈值可在 `ExplainService` 调整）。
+3. **执行计划视图**：MySQL 8 通过 `EXPLAIN FORMAT=JSON` 解析出结构化计划树（表格/树形/图形）；其他数据库回退为原始表格。
+4. **索引匹配规则**：检测已存在索引时采用"最左前缀匹配"，与数据库索引使用逻辑一致。
+5. **成本阈值**：执行计划成本 ≥10000 判为偏高才给索引建议；预估扫描行数 ≤500 判为数据量小，提示无需建索引（阈值可在 `ExplainService` 调整）。
 
 ## ☕ 打赏支持
 
 如果这个项目对你有帮助，欢迎请我喝杯咖啡 ❤️
 
-<img src="src/main/resources/static/image/ds.png" alt="打赏二维码" width="280">
+<img src="src/main/resources/static/image/ds.png" alt="打赏二维码" width="500">
 
 > 也可在应用内左侧菜单「打赏支持」查看。
 

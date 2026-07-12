@@ -125,7 +125,9 @@
                                     </span>
                                     <el-button type="primary" size="small" @click="copyText(r.optimizedSql)">📋 复制</el-button>
                                 </div>
-                                <div class="result-content" v-if="r.optimizedSql === r.sourceSql" style="color:#999;">（无改写，SQL 已较优或未启用 AI 改写）</div>
+                                <div class="result-content" v-if="r.optimizedSql === r.sourceSql" style="color:#999;">
+                                    {{ enableAi ? '（无改写，SQL 已较优或改写失败）' : '（本地分析不改写 SQL，仅给出索引建议；如需改写请开启「AI 深度优化」）' }}
+                                </div>
                                 <div class="result-content" v-else>{{ r.optimizedSql }}</div>
                             </div>
 

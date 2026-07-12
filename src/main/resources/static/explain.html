@@ -98,18 +98,101 @@
                             </div>
                         </div>
 
-                        <!-- 执行计划明细表格（类 Navicat） -->
+                        <!-- 执行计划明细：表格 / 树形 / 图形（类 DBeaver） -->
                         <div class="form-section-title">执行计划明细</div>
-                        <el-table :data="tableData" border stripe style="width:100%;margin-bottom:20px;" max-height="400">
-                            <el-table-column
-                                v-for="h in result.headers"
-                                :key="h"
-                                :prop="h"
-                                :label="h"
-                                min-width="120"
-                                show-overflow-tooltip
-                            ></el-table-column>
-                        </el-table>
+                        <el-tabs v-model="activeTab" type="border-card" style="margin-bottom:20px;">
+                            <!-- 表格视图（默认）：结构化列 Operation/Object/Rows/Cost/Node Type -->
+                            <el-tab-pane label="📋 表格" name="table">
+                                <!-- 有结构化树：展示 DBeaver 式的列 -->
+                                <el-table v-if="hasTree" :data="planRows" border stripe style="width:100%;" max-height="440" row-key="id">
+                                    <el-table-column label="Operation" min-width="360" show-overflow-tooltip>
+                                        <template #default="{ row }">
+                                            <span :style="{ paddingLeft: (row.depth * 18) + 'px' }" style="font-family:'Consolas','Monaco',monospace;">
+                                                <span v-if="row.depth > 0" style="color:#bbb;">└─ </span>
+                                                <span class="node-badge" :class="'op-' + (row.kind || 'op')">{{ row.nodeType }}</span>
+                                                <span style="color:#555;">{{ row.operation }}</span>
+                                            </span>
+                                        </template>
+                                    </el-table-column>
+                                    <el-table-column prop="object" label="Object" min-width="130" show-overflow-tooltip></el-table-column>
+                                    <el-table-column prop="rows" label="Rows" width="90" align="right"></el-table-column>
+                                    <el-table-column prop="cost" label="Cost" width="100" align="right"></el-table-column>
+                                    <el-table-column label="Node Type" width="130">
+                                        <template #default="{ row }">
+                                            <span class="node-badge" :class="'op-' + (row.kind || 'op')">{{ row.nodeType }}</span>
+                                        </template>
+                                    </el-table-column>
+                                </el-table>
+                                <!-- 无结构化树（其他数据库）：回退为原始列 -->
+                                <el-table v-else :data="tableData" border stripe style="width:100%;" max-height="440">
+                                    <el-table-column
+                                        v-for="h in result.headers"
+                                        :key="h"
+                                        :prop="h"
+                                        :label="h"
+                                        min-width="120"
+                                        show-overflow-tooltip
+                                    ></el-table-column>
+                                </el-table>
+                            </el-tab-pane>
+
+                            <!-- 树形视图 -->
+                            <el-tab-pane label="🌲 树形" name="tree">
+                                <el-tree
+                                    v-if="hasTree"
+                                    :data="planTree"
+                                    :props="{ children: 'children', label: 'label' }"
+                                    default-expand-all
+                                    :expand-on-click-node="false"
+                                    node-key="id"
+                                    class="plan-tree"
+                                >
+                                    <template #default="{ data }">
+                                        <span class="tree-node-label" :class="'op-' + (data.kind || 'detail')">
+                                            <span v-if="data.op" class="tree-op">{{ data.op }}</span>
+                                            <span>{{ data.text }}</span>
+                                            <span v-if="data.metric" class="tree-metric">{{ data.metric }}</span>
+                                        </span>
+                                    </template>
+                                </el-tree>
+                                <div v-else class="empty-state" style="padding:24px;color:#999;">
+                                    当前数据库未返回结构化执行计划树，请查看「表格」视图。
+                                </div>
+                            </el-tab-pane>
+
+                            <!-- 图形视图 -->
+                            <el-tab-pane label="🗺️ 图形" name="diagram">
+                                <div v-if="hasTree" class="plan-diagram">
+                                    <div
+                                        v-for="n in flatNodes"
+                                        :key="n.id"
+                                        class="diagram-row"
+                                        :style="{ marginLeft: (n.depth * 34) + 'px' }"
+                                    >
+                                        <span v-if="n.depth > 0" class="diagram-connector"></span>
+                                        <div class="diagram-node" :class="'op-' + (n.kind || 'detail')">
+                                            <div class="diagram-node-title">
+                                                <span v-if="n.op" class="diagram-op">{{ n.op }}</span>
+                                                <span>{{ n.text }}</span>
+                                            </div>
+                                            <div v-if="n.metric" class="diagram-node-metric">{{ n.metric }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-else class="empty-state" style="padding:24px;color:#999;">
+                                    当前数据库未返回结构化执行计划树，请查看「表格」视图。
+                                </div>
+                            </el-tab-pane>
+
+                            <!-- 原始输出（调试用） -->
+                            <el-tab-pane label="🔧 原始输出" name="raw">
+                                <div style="font-size:12px;color:#999;margin-bottom:8px;">
+                                    数据库类型：{{ result.dbType || '未知' }} · 表头列数：{{ result.headers ? result.headers.length : 0 }}
+                                    <el-button size="small" text @click="copyText(rawDump)" style="margin-left:8px;">📋 复制全部</el-button>
+                                </div>
+                                <div class="result-content" style="max-height:460px;white-space:pre-wrap;">{{ rawDump }}</div>
+                            </el-tab-pane>
+                        </el-tabs>
 
                         <!-- 索引建议（仅高成本时给出） -->
                         <div v-if="result.indexSuggestions && result.indexSuggestions.length > 0" class="form-section">
@@ -157,6 +240,74 @@
         .cost-medium .stat-value { color: #d48806; }
         .cost-low { background: #f6ffed; border-color: #b7eb8f; }
         .cost-low .stat-value { color: #389e0d; }
+
+        /* 表格视图：Node Type 彩色标签 */
+        .node-badge {
+            display: inline-block;
+            font-family: 'Consolas','Monaco',monospace;
+            font-size: 11px; font-weight: 700;
+            padding: 1px 7px; border-radius: 6px; margin-right: 6px;
+            background: #e6f4ff; color: #0958d9;
+        }
+        .op-scan-full.node-badge { background: #fff1f0; color: #cf1322; }
+        .op-index.node-badge { background: #f6ffed; color: #389e0d; }
+        .op-scan.node-badge { background: #fffbe6; color: #d48806; }
+        .op-join.node-badge { background: #f9f0ff; color: #531dab; }
+        .op-sort.node-badge { background: #e6fffb; color: #08979c; }
+        .op-agg.node-badge { background: #fff0f6; color: #c41d7f; }
+        .op-detail.node-badge { background: #f0f0f0; color: #999; }
+
+        /* 树形视图 */
+        .plan-tree { padding: 8px 4px; }
+        .tree-node-label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+        .tree-op {
+            font-weight: 700; font-family: 'Consolas','Monaco',monospace;
+            padding: 1px 8px; border-radius: 6px; font-size: 12px;
+            background: #e6f4ff; color: #0958d9;
+        }
+        .tree-metric { color: #999; font-family: 'Consolas','Monaco',monospace; font-size: 12px; }
+        /* 明细节点弱化显示 */
+        .op-detail .tree-op { background: #f0f0f0; color: #999; }
+        .op-detail { color: #888; }
+
+        /* 图形视图（类 DBeaver 计划节点树） */
+        .plan-diagram { padding: 10px 4px; overflow-x: auto; }
+        .diagram-row { position: relative; margin-bottom: 10px; }
+        .diagram-connector {
+            position: absolute; left: -18px; top: 50%; width: 18px; height: 2px;
+            background: #cfd8dc;
+        }
+        .diagram-node {
+            display: inline-block; min-width: 220px; max-width: 620px;
+            border: 1px solid #d9e1e8; border-left-width: 4px; border-radius: 10px;
+            padding: 10px 14px; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            vertical-align: middle;
+        }
+        .diagram-node-title { font-size: 13px; color: #333; display: flex; align-items: center; gap: 8px; }
+        .diagram-op {
+            font-weight: 700; font-family: 'Consolas','Monaco',monospace; font-size: 12px;
+            padding: 1px 8px; border-radius: 6px; background: #e6f4ff; color: #0958d9;
+        }
+        .diagram-node-metric {
+            margin-top: 6px; font-size: 12px; color: #8a9299;
+            font-family: 'Consolas','Monaco',monospace;
+        }
+
+        /* 节点类别配色（树形 op 标签 + 图形左边框） */
+        .op-scan-full { border-left-color: #ff4d4f; }
+        .op-scan-full .tree-op, .op-scan-full .diagram-op { background: #fff1f0; color: #cf1322; }
+        .op-index { border-left-color: #52c41a; }
+        .op-index .tree-op, .op-index .diagram-op { background: #f6ffed; color: #389e0d; }
+        .op-scan { border-left-color: #faad14; }
+        .op-scan .tree-op, .op-scan .diagram-op { background: #fffbe6; color: #d48806; }
+        .op-join { border-left-color: #722ed1; }
+        .op-join .tree-op, .op-join .diagram-op { background: #f9f0ff; color: #531dab; }
+        .op-sort { border-left-color: #13c2c2; }
+        .op-sort .tree-op, .op-sort .diagram-op { background: #e6fffb; color: #08979c; }
+        .op-agg { border-left-color: #eb2f96; }
+        .op-agg .tree-op, .op-agg .diagram-op { background: #fff0f6; color: #c41d7f; }
+        .op-op { border-left-color: #1677ff; }
+        .op-detail.diagram-node, .diagram-node.op-detail { border-left-color: #d9d9d9; background: #fafafa; }
     </style>
 
     <script>
@@ -169,6 +320,7 @@
                 const loading = ref(false);
                 const dsConnected = ref(false);
                 const dsInfo = ref('');
+                const activeTab = ref('table');
 
                 const fetchStatus = async () => {
                     try {
@@ -190,6 +342,134 @@
                         }
                         return obj;
                     });
+                });
+
+                // 根据操作/访问类型判定节点类别（用于着色）
+                const classifyKind = (op, accessType) => {
+                    const a = (accessType || '').toLowerCase();
+                    const o = (op || '').toLowerCase();
+                    // 全表扫描（MySQL 8 新格式：operation="Table scan on x"、access_type="table"；旧格式 access_type="ALL"）
+                    if (a === 'all' || (o.includes('table scan') && !o.includes('index'))) return 'scan-full';
+                    // 索引查找/扫描（良好）
+                    if (o.includes('index lookup') || o.includes('index scan') || o.includes('index range')
+                        || a === 'ref' || a === 'eq_ref' || a === 'range' || a === 'const' || a === 'system' || a === 'index') return 'index';
+                    // 连接
+                    if (o.includes('nested loop') || o.includes('hash join') || o.includes('join') || a === 'join') return 'join';
+                    // 排序
+                    if (o.includes('sort') || o.includes('order') || a === 'sort') return 'sort';
+                    // 聚合/分组
+                    if (o.includes('aggregate') || o.includes('group') || o.includes('distinct')) return 'agg';
+                    // 过滤（中性弱化）
+                    if (o.includes('filter') || a === 'filter') return 'detail';
+                    return 'op';
+                };
+
+                // 从完整 operation 文本提取简短操作类型（用于彩色标签）
+                const shortOp = (op) => {
+                    const o = (op || '');
+                    if (/nested loop/i.test(o)) return 'Nested Loop';
+                    if (/hash join/i.test(o)) return 'Hash Join';
+                    if (/index lookup/i.test(o)) return 'Index Lookup';
+                    if (/single-row index/i.test(o)) return 'Index Lookup';
+                    if (/index scan/i.test(o)) return 'Index Scan';
+                    if (/index range/i.test(o)) return 'Index Range';
+                    if (/table scan/i.test(o)) return 'Table Scan';
+                    if (/covering index/i.test(o)) return 'Covering Index';
+                    if (/^sort/i.test(o)) return 'Sort';
+                    if (/^filter/i.test(o)) return 'Filter';
+                    if (/aggregate/i.test(o)) return 'Aggregate';
+                    if (/group/i.test(o)) return 'Group';
+                    if (/limit/i.test(o)) return 'Limit';
+                    // 取第一个词
+                    const m = o.match(/^([A-Za-z][A-Za-z\- ]*?)(?=:| on | using |$)/);
+                    return m ? m[1].trim() : (o.length > 20 ? o.slice(0, 20) : o);
+                };
+
+                // 把后端 PlanNode 转成展示节点（树/图/表格共用）
+                let _uid = 0;
+                const toDisplay = (n) => {
+                    const kind = classifyKind(n.operation, n.accessType);
+                    const metricParts = [];
+                    if (n.rows != null) metricParts.push('rows=' + n.rows);
+                    if (n.cost) metricParts.push('cost=' + Number(n.cost).toFixed(2));
+                    return {
+                        id: 'p' + (_uid++),
+                        op: shortOp(n.operation),
+                        text: n.operation || n.detail || '',
+                        metric: metricParts.join('  '),
+                        kind,
+                        // 表格视图用的原始字段
+                        operation: n.operation || '',
+                        object: n.tableName || (n.key ? ('索引 ' + n.key) : ''),
+                        rows: n.rows,
+                        cost: n.cost != null ? Number(n.cost) : null,
+                        nodeType: shortOp(n.operation),
+                        accessType: n.accessType || '',
+                        label: n.operation || n.detail || '',
+                        children: (n.children || []).map(toDisplay)
+                    };
+                };
+
+                // 计划树：优先用后端结构化 planTree
+                const planTree = computed(() => {
+                    _uid = 0;
+                    const r = result.value;
+                    if (!r || !r.planTree || r.planTree.length === 0) return [];
+                    return r.planTree.map(toDisplay);
+                });
+
+                // 是否有结构化树可展示（MySQL FORMAT=JSON 才有）
+                const hasTree = computed(() => planTree.value.length > 0);
+
+                // 调试用：原始输出转储（表头 + 每行原始数据 + JSON）
+                const rawDump = computed(() => {
+                    const r = result.value;
+                    if (!r) return '';
+                    let out = '=== 数据库类型 ===\n' + (r.dbType || '未知') + '\n\n';
+                    out += '=== 表头 (headers) ===\n' + JSON.stringify(r.headers) + '\n\n';
+                    out += '=== 数据行 (rows) ===\n';
+                    (r.rows || []).forEach((row, i) => {
+                        out += '行' + (i + 1) + ': ' + JSON.stringify(row.columns) + '\n';
+                    });
+                    out += '\n=== rawPlan (文本) ===\n' + (r.rawPlan || '(空)') + '\n\n';
+                    out += '=== rawJson (FORMAT=JSON) ===\n' + (r.rawJson || '(无)') + '\n';
+                    return out;
+                });
+
+                // 图形视图：把树拍平成带 depth 的列表
+                const flatNodes = computed(() => {
+                    const out = [];
+                    const walk = (nodes, depth) => {
+                        nodes.forEach(n => {
+                            out.push({ ...n, depth });
+                            if (n.children && n.children.length) walk(n.children, depth + 1);
+                        });
+                    };
+                    walk(planTree.value, 0);
+                    return out;
+                });
+
+                // 表格视图：把计划树拍平成带层级缩进的行（Operation/Object/Rows/Cost/Node Type）
+                const planRows = computed(() => {
+                    const out = [];
+                    const walk = (nodes, depth) => {
+                        nodes.forEach(n => {
+                            out.push({
+                                id: n.id,
+                                depth,
+                                indent: '  '.repeat(depth) + (depth > 0 ? '└─ ' : ''),
+                                operation: n.operation,
+                                object: n.object || '—',
+                                rows: n.rows != null ? n.rows : '—',
+                                cost: n.cost != null ? n.cost.toFixed(2) : '—',
+                                nodeType: n.nodeType,
+                                kind: n.kind
+                            });
+                            if (n.children && n.children.length) walk(n.children, depth + 1);
+                        });
+                    };
+                    walk(planTree.value, 0);
+                    return out;
                 });
 
                 const doExplain = async () => {
@@ -250,6 +530,7 @@
                 onMounted(fetchStatus);
 
                 return { sql, result, loading, dsConnected, dsInfo, tableData,
+                    activeTab, planTree, planRows, flatNodes, hasTree, rawDump,
                     doExplain, costLevelText, tagText, copyText, goDataSource, clearAll };
             }
         }).use(ElementPlus).mount('#app');

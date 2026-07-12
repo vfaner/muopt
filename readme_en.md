@@ -13,13 +13,16 @@ SQL Optimizer Tool is a Spring Boot 3 web application that performs intelligent 
 - 🎯 **Smart index suggestions**: Parses the AST with JSqlParser and extracts candidate columns from WHERE equality/range conditions, JOIN ON, ORDER BY, and GROUP BY to generate reasonable (composite) indexes
 - 🎨 **Color-coded status**: Existing = gray, missing/unverified = orange — clear at a glance, copy-paste ready
 - ✏️ **Manual optimization**: Paste a single SQL for instant analysis
-- ⚡ **Scan optimization**: Scan a project directory to extract SQL from MyBatis XML, SQL strings in Java code, and SQL in annotations (`@Select`/`@Insert`/`@Update`/`@Delete`/`@Query`); analyze each and optionally replace in place
+- 🔍 **Scan optimization**: Scan a project directory to extract SQL from MyBatis XML, SQL strings in Java code, and SQL in annotations (`@Select`/`@Insert`/`@Update`/`@Delete`/`@Query`); analyze each and replace in place with a one click (auto `.bak` backup)
 - 🤖 **AI deep optimization** (optional): Integrates Alibaba Cloud Bailian (Tongyi Qianwen) to intelligently rewrite SQL
 - 🔗 **Data source configuration** (optional): Once configured, enables —
   - Index existence detection (gray/orange distinction)
   - Redundant index detection (with DROP suggestions)
   - Small-table-drives-large-table analysis
-- 📊 **SQL execution plan**: Runs EXPLAIN after connecting a data source, displayed in a Navicat-style table; only suggests indexes when cost is high, and hints "no index needed" when data volume is small
+- 📊 **SQL execution plan**: Runs EXPLAIN after connecting a data source, with **Table / Tree / Diagram** views (DBeaver-style):
+  - Table: structured columns Operation / Object / Rows / Cost / Node Type
+  - Tree / Diagram: nodes laid out by plan hierarchy, color-coded by operation type (full scan = red, index = green, join = purple, etc.)
+  - Only suggests indexes when cost is high, and hints "no index needed" when data volume is small
 
 ### 🎨 Design Logic
 
@@ -28,6 +31,20 @@ SQL Optimizer Tool is a Spring Boot 3 web application that performs intelligent 
 | **No data source configured** | All index suggestions are **orange** (existence cannot be verified); `CREATE INDEX` is copyable; the execution-plan page prompts "please configure a data source first" |
 | **Data source configured** | Indexes are distinguished as **gray (existing) / orange (missing)**; additionally provides redundant-index and small/large-table-driving suggestions; execution-plan analysis is available |
 | **Manual/Scan page header** | After configuring a data source, the top shows "✅ Data source configured, deep optimization available" |
+
+## 🖼️ Screenshots
+
+### ✏️ Manual Optimization
+![Manual Optimization](docs/sql_yh_sd.png)
+
+### 🔍 Scan Optimization
+![Scan Optimization](docs/sql_yh_zd.png)
+
+### 🔗 Data Source Configuration
+![Data Source Configuration](docs/sql_yh_sjy.png)
+
+### 📊 SQL Execution Plan
+![SQL Execution Plan](docs/sql_yh_zx.png)
 
 ## 🛠️ Tech Stack
 
@@ -106,10 +123,12 @@ The Dameng JDBC driver is not published to Maven Central and must be added manua
 
 ```
 sql-optimizer-tool/
+├── docs/                                     # Screenshots
 ├── src/main/java/com/sqloptimizer/
 │   ├── SqlOptimizerApplication.java         # Startup class (excludes default data source auto-config)
 │   ├── common/                              # Result / IndexSuggestion / OptimizeResult
-│   │                                        # ExplainResult / ExplainRow / DataSourceConfig / ScanItem
+│   │                                        # ExplainResult / ExplainRow / PlanNode
+│   │                                        # DataSourceConfig / ScanItem
 │   ├── config/                              # Global exception handling
 │   ├── controller/
 │   │   ├── OptimizeController.java          # Optimize + batch + status
@@ -121,7 +140,7 @@ sql-optimizer-tool/
 │       ├── SqlOptimizerService.java         # Optimization orchestration: rules/data source/AI
 │       ├── ProjectScanService.java          # Project scanning & in-place replacement
 │       ├── DataSourceService.java           # Connection/index detection/table size/redundant indexes
-│       ├── ExplainService.java              # EXPLAIN execution & cost evaluation
+│       ├── ExplainService.java              # EXPLAIN execution, plan-tree parsing & cost evaluation
 │       └── AiService.java                   # Bailian AI service
 └── src/main/resources/
     ├── application.yml
@@ -141,14 +160,15 @@ sql-optimizer-tool/
 
 1. **In-memory data source**: The configured connection is kept in memory only and must be reconfigured after a restart; passwords are never returned to the frontend.
 2. **Execution-plan safety**: For PostgreSQL-family databases, `EXPLAIN` (without ANALYZE) is used, so no write operations are actually executed.
-3. **Index matching rule**: Existing-index detection uses "leftmost-prefix matching", consistent with how databases use indexes.
-4. **Cost thresholds**: An execution-plan cost ≥10000 is considered high before suggesting an index; an estimated scan of ≤500 rows is considered small data volume, hinting no index is needed (thresholds adjustable in `ExplainService`).
+3. **Execution-plan views**: MySQL 8 uses `EXPLAIN FORMAT=JSON` to parse a structured plan tree (table/tree/diagram); other databases fall back to the raw table.
+4. **Index matching rule**: Existing-index detection uses "leftmost-prefix matching", consistent with how databases use indexes.
+5. **Cost thresholds**: An execution-plan cost ≥10000 is considered high before suggesting an index; an estimated scan of ≤500 rows is considered small data volume, hinting no index is needed (thresholds adjustable in `ExplainService`).
 
 ## ☕ Donation Support
 
 If this project helps you, feel free to buy me a coffee ❤️
 
-<img src="src/main/resources/static/image/ds.png" alt="Donation QR code" width="280">
+<img src="src/main/resources/static/image/ds.png" alt="Donation QR code" width="500">
 
 > You can also view it via the "Donation Support" item in the left menu of the app.
 

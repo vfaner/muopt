@@ -95,6 +95,17 @@
                         </div>
                         <div class="result-content">{{ result.optimizedSql }}</div>
                     </div>
+                    <!-- 未产生改写时的说明 -->
+                    <div class="rewrite-note" v-else>
+                        <span>💡</span>
+                        <span v-if="!enableAi">
+                            本地分析仅提供<strong>索引建议</strong>与<strong>优化提示</strong>（见下方），不会改写你的 SQL。
+                            如需对 SQL 本身进行智能改写，请打开上方「AI 深度优化」开关（需配置 API Key）。
+                        </span>
+                        <span v-else>
+                            已启用 AI，但本次未产生可改写内容（SQL 已较优或改写失败，详见下方提示）。
+                        </span>
+                    </div>
 
                     <!-- 索引建议 -->
                     <div class="form-section" style="margin-top: 20px;">

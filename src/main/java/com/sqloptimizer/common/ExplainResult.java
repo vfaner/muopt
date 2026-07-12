@@ -36,4 +36,13 @@ public class ExplainResult {
 
     /** 基于执行计划给出的索引建议 */
     private List<IndexSuggestion> indexSuggestions = new ArrayList<>();
+
+    /** 结构化执行计划树（树形/图形视图用），根节点集合 */
+    private List<PlanNode> planTree = new ArrayList<>();
+
+    /** 调试用：数据库返回的原始 JSON 计划（MySQL FORMAT=JSON），便于排查解析问题 */
+    private String rawJson;
+
+    /** 调试用：连接的数据库类型 */
+    private String dbType;
 }
