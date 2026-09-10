@@ -10,6 +10,7 @@
     <script src="/libs/vue.global.prod.js"></script>
     <script src="/libs/element-plus.index.full.min.js"></script>
     <script src="/libs/axios.min.js"></script>
+    <script src="/page-state.js"></script>
 </head>
 <body>
     <div id="app">
@@ -32,6 +33,9 @@
                     </a>
                     <a href="/datasource.html" class="menu-item">
                         <span class="menu-icon">🔗</span><span>配置数据源</span>
+                    </a>
+                    <a href="/ai.html" class="menu-item">
+                        <span class="menu-icon">🤖</span><span>AI 模型</span>
                     </a>
                     <a href="/donate.html" class="menu-item">
                         <span class="menu-icon">☕</span><span>打赏支持</span>
@@ -70,7 +74,7 @@
                         <div class="form-section-title">AI 深度优化</div>
                         <div class="switch-wrapper">
                             <el-switch v-model="enableAi"></el-switch>
-                            <span class="switch-label">启用 AI 深度优化（需配置 API Key，对 SQL 进行智能改写）</span>
+                            <span class="switch-label">启用 AI 深度优化（需在「AI 模型」页配置并启用一个模型，对 SQL 进行智能改写）</span>
                         </div>
                     </div>
 
@@ -84,6 +88,9 @@
 
                 <!-- 优化结果 -->
                 <div v-if="result" class="content-card">
+                    <div v-if="restoredAt" style="font-size:12px;color:#999;margin-bottom:10px;">
+                        🕓 已保留上次分析结果（{{ savedAtText }}），重新点击「开始优化」可刷新
+                    </div>
                     <!-- 优化后 SQL -->
                     <div class="result-area" v-if="result.aiOptimized || result.optimizedSql !== result.sourceSql">
                         <div class="result-header">
@@ -100,7 +107,7 @@
                         <span>💡</span>
                         <span v-if="!enableAi">
                             本地分析仅提供<strong>索引建议</strong>与<strong>优化提示</strong>（见下方），不会改写你的 SQL。
-                            如需对 SQL 本身进行智能改写，请打开上方「AI 深度优化」开关（需配置 API Key）。
+                            如需对 SQL 本身进行智能改写，请打开上方「AI 深度优化」开关（需先在「AI 模型」页配置并启用一个模型）。
                         </span>
                         <span v-else>
                             已启用 AI，但本次未产生可改写内容（SQL 已较优或改写失败，详见下方提示）。
@@ -160,16 +167,27 @@
     </div>
 
     <script>
-        const { createApp, ref, onMounted } = Vue;
+        const { createApp, ref, computed, watch, onMounted } = Vue;
 
         createApp({
             setup() {
-                const sql = ref('');
-                const enableAi = ref(false);
-                const result = ref(null);
+                // 从 sessionStorage 恢复：菜单跳转/F5 后输入与上次结果不丢失
+                const saved = PageState.get('manual') || {};
+                const sql = ref(saved.sql || '');
+                const enableAi = ref(!!saved.enableAi);
+                const result = ref(saved.result || null);
+                const restoredAt = ref(result.value ? (saved.savedAt || null) : null);
+                const savedAtText = computed(() => PageState.formatTime(restoredAt.value));
                 const loading = ref(false);
                 const dsConnected = ref(false);
                 const dsInfo = ref('');
+
+                // 输入/结果变化即暂存（同标签页内跳菜单、刷新都可恢复）
+                const persist = () => PageState.set('manual', {
+                    sql: sql.value, enableAi: enableAi.value,
+                    result: result.value, savedAt: Date.now()
+                });
+                watch([sql, enableAi], persist);
 
                 const fetchStatus = async () => {
                     try {
@@ -194,6 +212,8 @@
                         });
                         if (resp.data.code === 200) {
                             result.value = resp.data.data;
+                            restoredAt.value = null;
+                            persist();
                             ElementPlus.ElMessage.success('优化完成');
                         } else {
                             ElementPlus.ElMessage.error(resp.data.message || '优化失败');
@@ -230,11 +250,14 @@
                 const clearAll = () => {
                     sql.value = '';
                     result.value = null;
+                    restoredAt.value = null;
+                    PageState.remove('manual');
                 };
 
                 onMounted(fetchStatus);
 
-                return { sql, enableAi, result, loading, dsConnected, dsInfo, doOptimize, tagText, copyText, clearAll };
+                return { sql, enableAi, result, loading, dsConnected, dsInfo, restoredAt, savedAtText,
+                    doOptimize, tagText, copyText, clearAll };
             }
         }).use(ElementPlus).mount('#app');
     </script>

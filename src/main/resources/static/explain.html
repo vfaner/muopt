@@ -10,6 +10,7 @@
     <script src="/libs/vue.global.prod.js"></script>
     <script src="/libs/element-plus.index.full.min.js"></script>
     <script src="/libs/axios.min.js"></script>
+    <script src="/page-state.js"></script>
 </head>
 <body>
     <div id="app">
@@ -31,6 +32,9 @@
                     </a>
                     <a href="/datasource.html" class="menu-item">
                         <span class="menu-icon">🔗</span><span>配置数据源</span>
+                    </a>
+                    <a href="/ai.html" class="menu-item">
+                        <span class="menu-icon">🤖</span><span>AI 模型</span>
                     </a>
                     <a href="/donate.html" class="menu-item">
                         <span class="menu-icon">☕</span><span>打赏支持</span>
@@ -81,6 +85,9 @@
 
                     <!-- 执行计划结果 -->
                     <div v-if="result" class="content-card">
+                        <div v-if="restoredAt" style="font-size:12px;color:#999;margin-bottom:10px;">
+                            🕓 已保留上次执行计划结果（{{ savedAtText }}），重新点击「分析执行计划」可刷新
+                        </div>
                         <!-- 成本概览 -->
                         <div class="form-section-title">成本评估</div>
                         <div style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
@@ -311,16 +318,29 @@
     </style>
 
     <script>
-        const { createApp, ref, computed, onMounted } = Vue;
+        const { createApp, ref, computed, watch, onMounted } = Vue;
 
         createApp({
             setup() {
-                const sql = ref('');
-                const result = ref(null);
+                // 从 sessionStorage 恢复：菜单跳转/F5 后 SQL、视图页签与上次结果不丢失
+                const savedInput = PageState.get('explain-input') || {};
+                const savedResult = PageState.get('explain-result') || {};
+                const sql = ref(savedInput.sql || '');
+                const result = ref(savedResult.result || null);
+                const restoredAt = ref(result.value ? (savedResult.savedAt || null) : null);
+                const savedAtText = computed(() => PageState.formatTime(restoredAt.value));
                 const loading = ref(false);
                 const dsConnected = ref(false);
                 const dsInfo = ref('');
-                const activeTab = ref('table');
+                const activeTab = ref(savedResult.activeTab || 'table');
+
+                watch(sql, () => PageState.set('explain-input', { sql: sql.value }));
+                watch(activeTab, persistResult);
+                function persistResult() {
+                    PageState.set('explain-result', {
+                        result: result.value, activeTab: activeTab.value, savedAt: Date.now()
+                    });
+                }
 
                 const fetchStatus = async () => {
                     try {
@@ -482,6 +502,8 @@
                         const resp = await axios.post('/api/explain', { sql: sql.value });
                         if (resp.data.code === 200) {
                             result.value = resp.data.data;
+                            restoredAt.value = null;
+                            persistResult();
                             ElementPlus.ElMessage.success('执行计划分析完成');
                         } else {
                             ElementPlus.ElMessage.error(resp.data.message || '分析失败');
@@ -525,12 +547,19 @@
                 };
 
                 const goDataSource = () => { window.location.href = '/datasource.html'; };
-                const clearAll = () => { sql.value = ''; result.value = null; };
+                const clearAll = () => {
+                    sql.value = '';
+                    result.value = null;
+                    restoredAt.value = null;
+                    PageState.remove('explain-input');
+                    PageState.remove('explain-result');
+                };
 
                 onMounted(fetchStatus);
 
                 return { sql, result, loading, dsConnected, dsInfo, tableData,
                     activeTab, planTree, planRows, flatNodes, hasTree, rawDump,
+                    restoredAt, savedAtText,
                     doExplain, costLevelText, tagText, copyText, goDataSource, clearAll };
             }
         }).use(ElementPlus).mount('#app');

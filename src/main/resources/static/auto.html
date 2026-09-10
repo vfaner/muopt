@@ -10,6 +10,7 @@
     <script src="/libs/vue.global.prod.js"></script>
     <script src="/libs/element-plus.index.full.min.js"></script>
     <script src="/libs/axios.min.js"></script>
+    <script src="/page-state.js"></script>
 </head>
 <body>
     <div id="app">
@@ -31,6 +32,9 @@
                     </a>
                     <a href="/datasource.html" class="menu-item">
                         <span class="menu-icon">🔗</span><span>配置数据源</span>
+                    </a>
+                    <a href="/ai.html" class="menu-item">
+                        <span class="menu-icon">🤖</span><span>AI 模型</span>
                     </a>
                     <a href="/donate.html" class="menu-item">
                         <span class="menu-icon">☕</span><span>打赏支持</span>
@@ -67,7 +71,7 @@
                         <div class="form-section-title">AI 深度优化</div>
                         <div class="switch-wrapper">
                             <el-switch v-model="enableAi"></el-switch>
-                            <span class="switch-label">启用 AI 深度优化（需配置 API Key）</span>
+                            <span class="switch-label">启用 AI 深度优化（需在「AI 模型」页配置并启用一个模型）</span>
                         </div>
                     </div>
 
@@ -81,6 +85,9 @@
 
                 <!-- 扫描结果 -->
                 <div v-if="items.length > 0" class="content-card">
+                    <div v-if="restoredAt" style="font-size:12px;color:#999;margin-bottom:10px;">
+                        🕓 已保留上次扫描结果（{{ savedAtText }}），重新点击「扫描项目」可刷新
+                    </div>
                     <div class="form-section-title" style="margin-bottom:16px;">
                         扫描结果（共 {{ items.length }} 条 SQL）
                         <span class="legend" style="display:inline-flex;margin-left:16px;margin-bottom:0;">
@@ -207,18 +214,34 @@
     </div>
 
     <script>
-        const { createApp, ref, computed, onMounted } = Vue;
+        const { createApp, ref, computed, watch, onMounted } = Vue;
 
         createApp({
             setup() {
-                const projectPath = ref('');
-                const enableAi = ref(false);
-                const items = ref([]);
-                const activeNames = ref([]);
+                // 从 sessionStorage 恢复：菜单跳转/F5 后目录、开关与上次扫描结果不丢失
+                const savedInput = PageState.get('scan-input') || {};
+                const savedResult = PageState.get('scan-result') || {};
+                const projectPath = ref(savedInput.projectPath || '');
+                const enableAi = ref(!!savedInput.enableAi);
+                const items = ref(Array.isArray(savedResult.items) ? savedResult.items : []);
+                const activeNames = ref(Array.isArray(savedResult.activeNames) ? savedResult.activeNames : []);
+                const restoredAt = ref(items.value.length > 0 ? (savedResult.savedAt || null) : null);
+                const savedAtText = computed(() => PageState.formatTime(restoredAt.value));
                 const loading = ref(false);
-                const scanned = ref(false);
+                const scanned = ref(!!savedResult.scanned);
                 const dsConnected = ref(false);
                 const dsInfo = ref('');
+
+                // 输入项单独存（结果可能很大，配额失败时输入仍保留）
+                watch([projectPath, enableAi], () => PageState.set('scan-input', {
+                    projectPath: projectPath.value, enableAi: enableAi.value
+                }));
+                const persistResult = () => PageState.set('scan-result', {
+                    items: items.value, scanned: scanned.value,
+                    activeNames: activeNames.value, savedAt: Date.now()
+                });
+                watch(items, persistResult, { deep: true });
+                watch(activeNames, persistResult, { deep: true });
 
                 // ---- 目录选择器 ----
                 const dirDialogVisible = ref(false);
@@ -291,6 +314,8 @@
                             items.value = resp.data.data;
                             activeNames.value = items.value.map((_, i) => i);
                             scanned.value = true;
+                            restoredAt.value = null;
+                            persistResult();
                             ElementPlus.ElMessage.success(`扫描完成，共识别 ${items.value.length} 条 SQL`);
                         } else {
                             ElementPlus.ElMessage.error(resp.data.message || '扫描失败');
@@ -365,12 +390,17 @@
                 const clearAll = () => {
                     projectPath.value = '';
                     items.value = [];
+                    activeNames.value = [];
                     scanned.value = false;
+                    restoredAt.value = null;
+                    PageState.remove('scan-input');
+                    PageState.remove('scan-result');
                 };
 
                 onMounted(fetchStatus);
 
                 return { projectPath, enableAi, items, activeNames, loading, scanned,
+                    restoredAt, savedAtText,
                     dsConnected, dsInfo,
                     dirDialogVisible, dirLoading, dirCurrent, dirParent, dirHome,
                     dirEntries, dirSelected, pickable,
