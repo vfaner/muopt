@@ -80,6 +80,9 @@
                             🔍 扫描项目
                         </el-button>
                         <el-button size="large" @click="clearAll">清空</el-button>
+                        <span v-if="loading" style="font-size:13px;color:#999;align-self:center;">
+                            正在分析：索引/规则检查即时完成，AI 改写并发执行（最长等待约 90 秒，超时的条目保留本地分析）…
+                        </span>
                     </div>
                 </div>
 
@@ -309,7 +312,7 @@
                         const resp = await axios.post('/api/scan', {
                             projectPath: projectPath.value.trim(),
                             enableAi: enableAi.value
-                        });
+                        }, { timeout: 180000 });
                         if (resp.data.code === 200) {
                             items.value = resp.data.data;
                             activeNames.value = items.value.map((_, i) => i);
@@ -321,7 +324,11 @@
                             ElementPlus.ElMessage.error(resp.data.message || '扫描失败');
                         }
                     } catch (e) {
-                        ElementPlus.ElMessage.error('扫描失败: ' + (e.response?.data?.message || e.message));
+                        if (e.code === 'ECONNABORTED') {
+                            ElementPlus.ElMessage.error('扫描超时（超过 180 秒），请缩小目录范围或关闭 AI 后重试');
+                        } else {
+                            ElementPlus.ElMessage.error('扫描失败: ' + (e.response?.data?.message || e.message));
+                        }
                     } finally {
                         loading.value = false;
                     }

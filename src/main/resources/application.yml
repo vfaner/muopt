@@ -29,6 +29,10 @@ app:
   crypto:
     password: ${APP_CRYPTO_PASSWORD:sql-optimizer-default-key-change-me}
     salt: ${APP_CRYPTO_SALT:7d2f91a4c6b80e3f}
+  ai:
+    # 扫描优化时 AI 改写的并发度与总等待时限（秒）；超时未返回的条目保留本地规则分析
+    scan-concurrency: ${APP_AI_SCAN_CONCURRENCY:4}
+    scan-timeout-seconds: ${APP_AI_SCAN_TIMEOUT:90}
 
 logging:
   level:

@@ -14,6 +14,13 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -31,6 +38,7 @@ import java.util.stream.Stream;
 public class ProjectScanService {
 
     private final SqlOptimizerService optimizerService;
+    private final AiService aiService;
 
     /** 需要跳过的目录名 */
     private static final Set<String> SKIP_DIRS = Set.of(
@@ -60,8 +68,16 @@ public class ProjectScanService {
     /** 参数占位符：MyBatis 的 #{...} 与 ${...} */
     private static final Pattern SQL_PLACEHOLDER = Pattern.compile("[#$]\\{[^}]*}");
 
-    /** 单次扫描允许的 AI 调用条数上限（AI 是串行远程调用，不设上限会把请求挂死） */
+    /** 单次扫描允许的 AI 调用条数上限（远程调用不设上限会把请求挂死） */
     private static final int MAX_AI_CALLS_PER_SCAN = 20;
+
+    /** AI 调用并发度（app.ai.scan-concurrency 可覆盖） */
+    @org.springframework.beans.factory.annotation.Value("${app.ai.scan-concurrency:4}")
+    private int scanConcurrency;
+
+    /** 一次扫描中 AI 部分的最长总等待秒数，超时未完成的条目保留本地分析（app.ai.scan-timeout-seconds 可覆盖） */
+    @org.springframework.beans.factory.annotation.Value("${app.ai.scan-timeout-seconds:90}")
+    private int scanTimeoutSeconds;
 
     /**
      * 本进程内已扫描过的项目根目录（规范化绝对路径）。
@@ -70,8 +86,9 @@ public class ProjectScanService {
     private final Set<String> scannedRoots = ConcurrentHashMap.newKeySet();
 
     @Autowired
-    public ProjectScanService(SqlOptimizerService optimizerService) {
+    public ProjectScanService(SqlOptimizerService optimizerService, AiService aiService) {
         this.optimizerService = optimizerService;
+        this.aiService = aiService;
     }
 
     /**
@@ -114,36 +131,119 @@ public class ProjectScanService {
             throw new RuntimeException("遍历项目目录失败: " + e.getMessage(), e);
         }
 
-        // 逐条优化。AI 调用是串行的远程请求（单条最长 120s），条数多时必须设上限，
-        // 否则一次扫描会让请求挂到超时。超出上限的条目仍给出本地规则分析。
-        int aiBudget = enableAi ? MAX_AI_CALLS_PER_SCAN : 0;
-        if (enableAi && items.size() > MAX_AI_CALLS_PER_SCAN) {
+        // 1) 全部条目先做本地规则分析（毫秒级），保证任何情况下每条都有完整结果，
+        //    AI 慢/超时也不影响索引建议、冗余索引、大小表等分析的展示。
+        for (ScanItem item : items) {
+            fillLocalResult(item);
+        }
+        if (!enableAi) {
+            return items;
+        }
+
+        // 2) 未启用模型：给一次统一提示
+        if (!aiService.isConfigured()) {
+            String tip = "未启用 AI 模型，已跳过 AI 深度优化（请在「AI 模型」页配置并启用一个模型）。";
+            items.forEach(i -> i.getTips().add(tip));
+            return items;
+        }
+
+        // 3) AI 改写：限并发、限条数、限总时长。远程调用串行执行时每条最长可等
+        //    timeoutSeconds，几十条会让页面无限转圈；并发执行 + 总时限到点即返回，
+        //    未完成的条目保留本地分析并附提示。
+        if (items.size() > MAX_AI_CALLS_PER_SCAN) {
             log.warn("扫描出 {} 条 SQL，超过单次 AI 优化上限 {}，其余条目只做本地规则分析",
                     items.size(), MAX_AI_CALLS_PER_SCAN);
-        }
-        for (ScanItem item : items) {
-            boolean useAi = aiBudget > 0;
-            try {
-                OptimizeResult r = optimizerService.optimize(item.getSourceSql(), useAi);
-                item.setOptimizedSql(r.getOptimizedSql());
-                item.setIndexSuggestions(r.getIndexSuggestions());
-                item.getTips().addAll(r.getTips());
-                item.setAiOptimized(r.isAiOptimized());
-                if (useAi) {
-                    aiBudget--;
-                }
-            } catch (Exception e) {
-                item.setOptimizedSql(item.getSourceSql());
-                item.getTips().add("该条 SQL 优化失败：" + e.getMessage());
-            }
-        }
-        if (enableAi && items.size() > MAX_AI_CALLS_PER_SCAN) {
             for (int i = MAX_AI_CALLS_PER_SCAN; i < items.size(); i++) {
                 items.get(i).getTips().add("已达单次扫描的 AI 优化上限（" + MAX_AI_CALLS_PER_SCAN
                         + " 条），该条仅做本地规则分析。可缩小扫描范围后重试。");
             }
         }
+        runAiWithDeadline(items.subList(0, Math.min(items.size(), MAX_AI_CALLS_PER_SCAN)));
         return items;
+    }
+
+    /** 本地规则分析（不调用 AI），异常时退化为原文 + 失败提示 */
+    private void fillLocalResult(ScanItem item) {
+        try {
+            OptimizeResult r = optimizerService.optimize(item.getSourceSql(), false);
+            item.setOptimizedSql(r.getOptimizedSql());
+            item.setIndexSuggestions(r.getIndexSuggestions());
+            item.getTips().addAll(r.getTips());
+        } catch (Exception e) {
+            item.setOptimizedSql(item.getSourceSql());
+            item.getTips().add("该条 SQL 本地分析失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 并发执行 AI 改写，受总时限约束。到点未完成的任务被中断取消，
+     * 对应条目保留本地分析结果并附超时提示。
+     */
+    private void runAiWithDeadline(List<ScanItem> candidates) {
+        if (candidates.isEmpty()) {
+            return;
+        }
+        int concurrency = Math.max(1, Math.min(scanConcurrency, candidates.size()));
+        AtomicInteger seq = new AtomicInteger(1);
+        ThreadFactory tf = r -> {
+            Thread t = new Thread(r, "scan-ai-" + seq.getAndIncrement());
+            t.setDaemon(true);
+            return t;
+        };
+        ExecutorService pool = Executors.newFixedThreadPool(concurrency, tf);
+        List<CompletableFuture<Void>> futures = candidates.stream()
+                .map(item -> CompletableFuture.runAsync(() -> applyAi(item), pool))
+                .toList();
+        boolean deadlineExceeded = false;
+        try {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                    .get(scanTimeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            deadlineExceeded = true;
+            futures.forEach(f -> f.cancel(true));
+            log.warn("AI 批量优化超过总时限 {}s，未完成的条目仅保留本地分析", scanTimeoutSeconds);
+        } catch (Exception e) {
+            log.warn("AI 批量优化等待异常: {}", e.getMessage());
+        } finally {
+            pool.shutdownNow();
+            try {
+                // 给被取消的 HTTP 请求一点时间抛出中断异常，避免与超时提示重复
+                if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
+                    log.debug("仍有 AI 任务未在中断后 5s 内退出");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        if (deadlineExceeded) {
+            for (ScanItem item : candidates) {
+                boolean hasFailureTip = item.getTips().stream()
+                        .anyMatch(t -> t.startsWith("AI 优化失败"));
+                if (!item.isAiOptimized() && !hasFailureTip) {
+                    item.getTips().add("AI 优化超过本次扫描总时限（" + scanTimeoutSeconds
+                            + " 秒）未返回，该条仅保留本地规则分析，可稍后单独重试。");
+                }
+            }
+        }
+        long ok = candidates.stream().filter(ScanItem::isAiOptimized).count();
+        log.info("AI 批量改写完成：{}/{} 条成功（并发 {}，总时限 {}s）",
+                ok, candidates.size(), concurrency, scanTimeoutSeconds);
+    }
+
+    /** 单条 AI 改写；中断（总时限到）时不加失败提示，由总流程补超时提示 */
+    private void applyAi(ScanItem item) {
+        try {
+            String optimized = aiService.optimizeSql(item.getSourceSql());
+            if (optimized != null && !optimized.isBlank() && !Thread.currentThread().isInterrupted()) {
+                item.setOptimizedSql(optimized);
+                item.setAiOptimized(true);
+            }
+        } catch (Exception e) {
+            if (Thread.currentThread().isInterrupted()) {
+                return;
+            }
+            item.getTips().add("AI 优化失败：" + e.getMessage());
+        }
     }
 
     // ---------- XML（MyBatis） ----------

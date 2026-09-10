@@ -61,7 +61,8 @@ public class AiService {
                 ? 4096 : provider.getMaxTokens();
         AiChatClient.ChatResult result = chatClient.complete(provider, apiKey, null, prompt, maxTokens);
         if (!result.isSuccess()) {
-            log.error("AI 优化 SQL 失败: {}", result.getMessage());
+            // 外部服务超时/鉴权等属于可预期失败（批量扫描时可能多条同时失败），用 warn 即可
+            log.warn("AI 优化 SQL 失败（{}）: {}", provider.getName(), result.getMessage());
             throw new RuntimeException("AI 优化 SQL 失败: " + result.getMessage());
         }
         return stripCodeFence(result.getText()).trim();
