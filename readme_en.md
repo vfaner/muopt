@@ -186,6 +186,7 @@ sql-optimizer-tool/
 ## 📝 Notes
 
 1. **Multiple configs with exclusive enable**: Any number of database connections and AI models can be saved, but at most one of each kind is enabled at a time; exclusivity is enforced inside a server-side transaction (not just in the browser). Configs persist in the embedded H2 file database under `./data` and survive restarts. Passwords/API keys are encrypted at rest and never returned to the frontend; leaving the field blank on edit keeps the stored value. Override the encryption secret via `APP_CRYPTO_PASSWORD` / `APP_CRYPTO_SALT`. On startup the app best-effort reconnects to the previously enabled database; a failed reconnect shows an "enabled but offline" state in the UI.
+   - **AI in scan mode**: every SQL gets millisecond-level local rule analysis first; AI rewrites then run **concurrently** (default 4 in parallel, max 20 statements per scan, 90s overall deadline). Items not finished by the deadline keep their local analysis with a timeout note, so the page never waits indefinitely. Tune via `APP_AI_SCAN_CONCURRENCY` / `APP_AI_SCAN_TIMEOUT`.
 2. **Execution-plan safety**: For PostgreSQL-family databases, `EXPLAIN` (without ANALYZE) is used, so no write operations are actually executed.
 3. **Execution-plan views**: MySQL 8 uses `EXPLAIN FORMAT=JSON` to parse a structured plan tree (table/tree/diagram); other databases fall back to the raw table.
 4. **Index matching rule**: Existing-index detection uses "leftmost-prefix matching", consistent with how databases use indexes.
