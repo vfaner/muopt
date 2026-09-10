@@ -31,6 +31,11 @@ public class ExplainService {
     /** 扫描行数很少时，无需建索引 */
     private static final long SMALL_ROWS_THRESHOLD = 500L;
 
+    /** 文本执行计划中的全表扫描特征（词边界匹配，避免误伤 full_name / t_call_log 这类标识符） */
+    private static final java.util.regex.Pattern FULL_SCAN_TEXT = java.util.regex.Pattern.compile(
+            "\\bSEQ\\s+SCAN\\b|\\bFULL\\s+(TABLE\\s+)?SCAN\\b|\\bTABLE\\s+ACCESS\\s+FULL\\b",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
     @Autowired
     public ExplainService(DataSourceService dataSourceService, IndexAnalyzerService indexAnalyzer) {
         this.dataSourceService = dataSourceService;
@@ -49,13 +54,41 @@ public class ExplainService {
         }
 
         String dbType = dataSourceService.getCurrentConfig().getDbType().toLowerCase();
-        String explainSql = buildExplainSql(dbType, sql.trim());
+        String trimmedSql = sql.trim();
 
         ExplainResult result = new ExplainResult();
         result.setDbType(dbType);
-        try (Connection conn = dataSourceService.getConnection();
-             Statement st = conn.createStatement();
-             ResultSet rs = st.executeQuery(explainSql)) {
+        try (Connection conn = dataSourceService.getConnection()) {
+
+            if (isOracle(dbType)) {
+                // Oracle 不支持 EXPLAIN <sql>，必须先 EXPLAIN PLAN FOR 再从 DBMS_XPLAN 读回
+                runOracleExplain(conn, trimmedSql, result);
+            } else {
+                fillFromQuery(conn, buildExplainSql(dbType, trimmedSql), result);
+            }
+
+            // 解析成本与行数
+            parseCostAndRows(dbType, result);
+
+            // MySQL 系：用 EXPLAIN FORMAT=JSON 获取真实成本(query_cost)与结构化执行计划树
+            if (isMysqlFamily(dbType)) {
+                enrichWithJsonPlan(conn, trimmedSql, result);
+            }
+
+            evaluate(result, trimmedSql);
+        } catch (Exception e) {
+            log.error("执行计划分析失败", e);
+            throw new RuntimeException("执行计划分析失败: " + e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * 执行一条返回结果集的计划查询，填充表头、数据行与原始计划文本。
+     */
+    private void fillFromQuery(Connection conn, String query, ExplainResult result) throws SQLException {
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(query)) {
 
             ResultSetMetaData meta = rs.getMetaData();
             int colCount = meta.getColumnCount();
@@ -75,25 +108,35 @@ public class ExplainService {
                 result.getRows().add(row);
             }
             result.setRawPlan(rawPlan.toString().trim());
-
-            // 解析成本与行数
-            parseCostAndRows(dbType, result);
-
-            // MySQL 系：用 EXPLAIN FORMAT=JSON 获取真实成本(query_cost)与结构化执行计划树
-            if (isMysqlFamily(dbType)) {
-                enrichWithJsonPlan(conn, sql.trim(), result);
-            }
-
-            evaluate(result, sql.trim());
-        } catch (Exception e) {
-            log.error("执行计划分析失败", e);
-            throw new RuntimeException("执行计划分析失败: " + e.getMessage());
         }
-        return result;
     }
 
     /**
-     * 不同数据库的 EXPLAIN 语法
+     * Oracle 执行计划：EXPLAIN PLAN FOR 写入 PLAN_TABLE，再用 DBMS_XPLAN.DISPLAY 读回文本计划。
+     * 需要当前用户可访问 PLAN_TABLE（Oracle 10g 起为内置全局临时表 PLAN_TABLE$）。
+     */
+    private void runOracleExplain(Connection conn, String sql, ExplainResult result) throws SQLException {
+        String stmtId = "sqlopt_" + System.nanoTime();
+        try (Statement st = conn.createStatement()) {
+            st.execute("EXPLAIN PLAN SET STATEMENT_ID = '" + stmtId + "' FOR " + sql);
+        } catch (SQLException e) {
+            if (e.getMessage() != null && (e.getMessage().contains("ORA-00942") || e.getMessage().contains("ORA-02402"))) {
+                throw new SQLException("Oracle 执行计划需要 PLAN_TABLE，当前用户不可访问。"
+                        + "请执行 @?/rdbms/admin/utlxplan.sql 创建，或授予 PLAN_TABLE 权限。原始错误: " + e.getMessage(), e);
+            }
+            throw e;
+        }
+        fillFromQuery(conn,
+                "SELECT PLAN_TABLE_OUTPUT FROM TABLE(DBMS_XPLAN.DISPLAY('PLAN_TABLE', '" + stmtId + "', 'TYPICAL'))",
+                result);
+    }
+
+    private boolean isOracle(String dbType) {
+        return "oracle".equals(dbType);
+    }
+
+    /**
+     * 不同数据库的 EXPLAIN 语法（Oracle 走 runOracleExplain，不经过这里）
      */
     private String buildExplainSql(String dbType, String sql) {
         return switch (dbType) {
@@ -136,7 +179,10 @@ public class ExplainService {
                     if (top.hasNonNull("estimated_total_cost")) {
                         result.setTotalCost(top.get("estimated_total_cost").asDouble());
                     }
-                    if (top.hasNonNull("estimated_rows")) {
+                    // 根节点的 estimated_rows 是「输出」行数（LIMIT 后），不能当扫描行数用，
+                    // 否则 SELECT * FROM 大表 LIMIT 10 会被误判为"扫描行数很少、无需索引"。
+                    // 表格视图里的 rows 列才是每步扫描行数，已解析则不覆盖。
+                    if (result.getEstimatedRows() == null && top.hasNonNull("estimated_rows")) {
                         result.setEstimatedRows((long) top.get("estimated_rows").asDouble());
                     }
                 }
@@ -305,9 +351,16 @@ public class ExplainService {
             }
             if (maxRows > 0) {
                 result.setEstimatedRows(maxRows);
-                // MySQL 无直接成本，用扫描行数近似
+                // MySQL 表格视图无直接成本，先用扫描行数近似；
+                // 随后 enrichWithJsonPlan 若拿到真实 query_cost 会覆盖此值
                 result.setTotalCost((double) maxRows);
             }
+            return;
+        }
+
+        // Oracle：DBMS_XPLAN 的竖线表格，按表头定位 Rows / Cost 列
+        if (isOracle(dbType)) {
+            parseOraclePlanText(result);
             return;
         }
 
@@ -326,6 +379,69 @@ public class ExplainService {
                 }
             }
         }
+    }
+
+    /**
+     * 解析 DBMS_XPLAN.DISPLAY 输出的竖线表格，取 Rows / Cost 两列的最大值。
+     * 形如：
+     * | Id | Operation         | Name   | Rows | Bytes | Cost (%CPU)| Time     |
+     * |  0 | SELECT STATEMENT  |        | 1000 | 20000 |    45   (0)| 00:00:01 |
+     */
+    private void parseOraclePlanText(ExplainResult result) {
+        int rowsCol = -1, costCol = -1;
+        for (ExplainRow row : result.getRows()) {
+            for (Object val : row.getColumns().values()) {
+                if (val == null) {
+                    continue;
+                }
+                String line = val.toString();
+                if (!line.contains("|")) {
+                    continue;
+                }
+                String[] cells = line.split("\\|", -1);
+                // 表头行：定位 Rows / Cost 所在列
+                if (line.contains("Operation") && (line.contains("Rows") || line.contains("Cost"))) {
+                    for (int i = 0; i < cells.length; i++) {
+                        String h = cells[i].trim();
+                        if (h.equalsIgnoreCase("Rows")) rowsCol = i;
+                        if (h.toUpperCase().startsWith("COST")) costCol = i;
+                    }
+                    continue;
+                }
+                if (rowsCol >= 0 && rowsCol < cells.length) {
+                    Long r = parseOracleNumber(cells[rowsCol]);
+                    if (r != null && (result.getEstimatedRows() == null || r > result.getEstimatedRows())) {
+                        result.setEstimatedRows(r);
+                    }
+                }
+                if (costCol >= 0 && costCol < cells.length) {
+                    Long c = parseOracleNumber(cells[costCol]);
+                    if (c != null && (result.getTotalCost() == null || c > result.getTotalCost())) {
+                        result.setTotalCost((double) c);
+                    }
+                }
+            }
+        }
+    }
+
+    /** Oracle 计划单元格可能是 "1000"、"45   (0)"、"  10M"，取前导数字（K/M/G 换算） */
+    private Long parseOracleNumber(String cell) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^\\s*(\\d+)\\s*([KMG])?").matcher(cell);
+        if (!m.find()) {
+            return null;
+        }
+        long base = Long.parseLong(m.group(1));
+        String unit = m.group(2);
+        if (unit == null) {
+            return base;
+        }
+        return switch (unit) {
+            case "K" -> base * 1_000L;
+            case "M" -> base * 1_000_000L;
+            case "G" -> base * 1_000_000_000L;
+            default -> base;
+        };
     }
 
     private Double extractPgCost(String line) {
@@ -363,17 +479,56 @@ public class ExplainService {
     }
 
     /**
+     * 检测全表扫描：
+     * - MySQL 系看 type 列是否精确等于 ALL / index
+     * - 文本计划（PG/DM 等）用词边界匹配，避免 t_call_log、full_name、SMALLINT 之类被误判
+     */
+    private boolean detectFullScan(ExplainResult result) {
+        if (isMysqlFamily(result.getDbType())) {
+            for (ExplainRow row : result.getRows()) {
+                Object type = findValueIgnoreCase(row, "type");
+                if (type != null && "ALL".equalsIgnoreCase(type.toString().trim())) {
+                    return true;
+                }
+            }
+            // 计划树中的 access_type 同样只做精确比较
+            for (PlanNode node : result.getPlanTree()) {
+                if (hasFullScanNode(node)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        String plan = result.getRawPlan();
+        if (plan == null) {
+            return false;
+        }
+        return FULL_SCAN_TEXT.matcher(plan).find();
+    }
+
+    private boolean hasFullScanNode(PlanNode node) {
+        if (node == null) {
+            return false;
+        }
+        if (node.getAccessType() != null && "ALL".equalsIgnoreCase(node.getAccessType().trim())) {
+            return true;
+        }
+        for (PlanNode child : node.getChildren()) {
+            if (hasFullScanNode(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * 成本评估 + 给出建议
      */
     private void evaluate(ExplainResult result, String originalSql) {
         Double cost = result.getTotalCost();
         Long rows = result.getEstimatedRows();
 
-        // 检测全表扫描关键字
-        boolean fullScan = result.getRawPlan() != null
-                && (result.getRawPlan().toUpperCase().contains("ALL")
-                || result.getRawPlan().toUpperCase().contains("SEQ SCAN")
-                || result.getRawPlan().toUpperCase().contains("FULL"));
+        boolean fullScan = detectFullScan(result);
 
         if (cost == null) {
             result.setCostLevel("UNKNOWN");
@@ -381,32 +536,37 @@ public class ExplainService {
             return;
         }
 
-        if (rows != null && rows <= SMALL_ROWS_THRESHOLD) {
+        // 扫描行数少且没有全表扫描时才判定为无需优化；
+        // 带 LIMIT 的全表扫描输出行数很少，但依然要给索引建议
+        if (rows != null && rows <= SMALL_ROWS_THRESHOLD && !fullScan) {
             result.setCostLevel("LOW");
             result.getTips().add(String.format(
-                    "预估扫描行数很少（约 %d 行），即使存在全表扫描代价也很低，无需额外建立索引。", rows));
+                    "预估扫描行数很少（约 %d 行），且未检测到全表扫描，无需额外建立索引。", rows));
             return;
         }
 
         if (cost >= HIGH_COST_THRESHOLD) {
             result.setCostLevel("HIGH");
             result.getTips().add(String.format("执行计划成本偏高（约 %.2f），建议优化。", cost));
-            if (fullScan) {
-                result.getTips().add("检测到全表扫描，以下为基于 SQL 结构给出的索引建议：");
-            }
-            // 高成本才给索引建议
-            List<IndexSuggestion> suggestions = indexAnalyzer.analyze(originalSql);
-            dataSourceService.detectIndexExistence(suggestions);
-            for (IndexSuggestion s : suggestions) {
-                fillCreateSql(s);
-            }
-            result.setIndexSuggestions(suggestions);
         } else if (cost >= MEDIUM_COST_THRESHOLD) {
             result.setCostLevel("MEDIUM");
             result.getTips().add(String.format("执行计划成本中等（约 %.2f），可关注是否有优化空间。", cost));
         } else {
             result.setCostLevel("LOW");
             result.getTips().add(String.format("执行计划成本较低（约 %.2f），当前查询效率良好。", cost));
+        }
+
+        // 成本偏高或存在全表扫描时给索引建议（全表扫描即使当前成本不高，数据量涨上来也会劣化）
+        if (cost >= HIGH_COST_THRESHOLD || fullScan) {
+            if (fullScan) {
+                result.getTips().add("检测到全表扫描，以下为基于 SQL 结构给出的索引建议：");
+            }
+            List<IndexSuggestion> suggestions = indexAnalyzer.analyze(originalSql);
+            dataSourceService.detectIndexExistence(suggestions);
+            for (IndexSuggestion s : suggestions) {
+                fillCreateSql(s);
+            }
+            result.setIndexSuggestions(suggestions);
         }
     }
 
