@@ -1,59 +1,50 @@
 package com.sqloptimizer.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.sqloptimizer.entity.AiProvider;
 import lombok.extern.slf4j.Slf4j;
-import okhttp3.*;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
-import java.util.concurrent.TimeUnit;
-
 /**
- * 阿里云百炼（OpenAI 兼容接口）AI 服务
- * 用于对 SQL 进行深度优化（改写 + 索引建议说明）
+ * AI 服务：使用当前「启用」的 AI 模型配置对 SQL 进行深度优化（改写 + 索引建议说明）。
+ *
+ * <p>多模型配置与互斥启用见 {@link AiProviderService}；本服务只面向优化场景，
+ * 保持 {@link #isConfigured()} / {@link #optimizeSql(String)} 对外契约不变。
  */
 @Slf4j
 @Service
 public class AiService {
 
-    @Value("${ai.api.key}")
-    private String apiKey;
+    private final AiProviderService providerService;
+    private final AiChatClient chatClient;
 
-    @Value("${ai.api.base-url:https://dashscope.aliyuncs.com/compatible-mode}")
-    private String baseUrl;
-
-    @Value("${ai.api.model:qwen-max-latest}")
-    private String model;
-
-    private final OkHttpClient httpClient;
-    private final ObjectMapper objectMapper;
-
-    public AiService() {
-        this.httpClient = new OkHttpClient.Builder()
-                .connectTimeout(60, TimeUnit.SECONDS)
-                .readTimeout(120, TimeUnit.SECONDS)
-                .writeTimeout(60, TimeUnit.SECONDS)
-                .build();
-        this.objectMapper = new ObjectMapper();
+    public AiService(AiProviderService providerService, AiChatClient chatClient) {
+        this.providerService = providerService;
+        this.chatClient = chatClient;
     }
 
     /**
-     * 是否已配置有效的 API Key
+     * 是否存在已启用的 AI 模型
      */
     public boolean isConfigured() {
-        return apiKey != null && !apiKey.isBlank() && !"YOUR_BAILIAN_API_KEY".equals(apiKey);
+        return providerService.activeProvider().isPresent();
+    }
+
+    /** 当前启用模型的展示名（供状态横幅），未启用返回 null */
+    public String getActiveName() {
+        return providerService.activeProvider()
+                .map(p -> p.getName() + "（" + p.getModel() + "）")
+                .orElse(null);
     }
 
     /**
      * AI 深度优化 SQL，返回优化后的 SQL 文本
      */
     public String optimizeSql(String sql) {
-        try {
-            String prompt = String.format("""
+        AiProvider provider = providerService.activeProvider()
+                .orElseThrow(() -> new IllegalStateException("未启用任何 AI 模型，请先在「AI 模型」页配置并启用"));
+        String apiKey = providerService.decryptKey(provider);
+
+        String prompt = """
                 你是一个资深数据库 SQL 优化专家。请对以下 SQL 进行性能优化改写。
 
                 要求：
@@ -64,54 +55,16 @@ public class AiService {
 
                 原始 SQL：
                 %s
-                """, sql);
-            return chat(prompt).trim();
-        } catch (Exception e) {
-            log.error("AI 优化 SQL 失败", e);
-            throw new RuntimeException("AI 优化 SQL 失败: " + e.getMessage());
+                """.formatted(sql);
+
+        int maxTokens = provider.getMaxTokens() == null || provider.getMaxTokens() <= 0
+                ? 4096 : provider.getMaxTokens();
+        AiChatClient.ChatResult result = chatClient.complete(provider, apiKey, null, prompt, maxTokens);
+        if (!result.isSuccess()) {
+            log.error("AI 优化 SQL 失败: {}", result.getMessage());
+            throw new RuntimeException("AI 优化 SQL 失败: " + result.getMessage());
         }
-    }
-
-    private String chat(String prompt) throws IOException {
-        ObjectNode requestBody = objectMapper.createObjectNode();
-        requestBody.put("model", model);
-        requestBody.put("max_tokens", 4096);
-
-        ArrayNode messages = objectMapper.createArrayNode();
-        ObjectNode message = objectMapper.createObjectNode();
-        message.put("role", "user");
-        message.put("content", prompt);
-        messages.add(message);
-        requestBody.set("messages", messages);
-
-        RequestBody body = RequestBody.create(
-                objectMapper.writeValueAsString(requestBody),
-                MediaType.parse("application/json")
-        );
-
-        Request request = new Request.Builder()
-                .url(baseUrl + "/v1/chat/completions")
-                .addHeader("Authorization", "Bearer " + apiKey)
-                .addHeader("Content-Type", "application/json")
-                .post(body)
-                .build();
-
-        try (Response response = httpClient.newCall(request).execute()) {
-            String responseBody = response.body() != null ? response.body().string() : "";
-            if (!response.isSuccessful()) {
-                log.error("百炼 API 调用失败: {} - {}", response.code(), responseBody);
-                throw new IOException("百炼 API 调用失败: " + response.code() + " - " + responseBody);
-            }
-            JsonNode responseJson = objectMapper.readTree(responseBody);
-            JsonNode choices = responseJson.get("choices");
-            if (choices != null && choices.isArray() && choices.size() > 0) {
-                JsonNode messageNode = choices.get(0).get("message");
-                if (messageNode != null && messageNode.has("content")) {
-                    return stripCodeFence(messageNode.get("content").asText());
-                }
-            }
-            throw new IOException("百炼 API 返回格式异常: " + responseBody);
-        }
+        return stripCodeFence(result.getText()).trim();
     }
 
     /**

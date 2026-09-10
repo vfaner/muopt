@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * SQL 优化编排服务
@@ -93,7 +94,7 @@ public class SqlOptimizerService {
         // 5. AI 深度优化（可选）
         if (enableAi) {
             if (!aiService.isConfigured()) {
-                result.getTips().add("未配置 AI API Key，已跳过 AI 深度优化。");
+                result.getTips().add("未启用 AI 模型，已跳过 AI 深度优化（请在「AI 模型」页配置并启用一个模型）。");
             } else {
                 try {
                     String optimized = aiService.optimizeSql(trimmed);
@@ -196,21 +197,31 @@ public class SqlOptimizerService {
     }
 
     /**
-     * 基础本地优化提示（不依赖数据源）
+     * 基础本地优化提示（不依赖数据源）。
+     * 关键字一律用词边界匹配，避免 vendor/color 这类标识符里的 "or" 被当成 OR 条件。
      */
     private void addBasicTips(String sql, OptimizeResult result) {
-        String upper = sql.toUpperCase();
-        if (upper.matches("(?s).*SELECT\\s+\\*.*")) {
+        String stripped = stripStringLiterals(sql).toUpperCase();
+        if (Pattern.compile("SELECT\\s+\\*", Pattern.CASE_INSENSITIVE).matcher(stripped).find()) {
             result.getTips().add("检测到 SELECT *，建议只查询需要的列，减少 IO 与网络传输。");
         }
-        if (upper.contains("LIKE '%") || upper.contains("LIKE \"%") || upper.matches("(?s).*LIKE\\s+'%.*")) {
+        // LIKE 的前导 % 要看原始 SQL（字面量已被剥离，这里单独判断）
+        if (Pattern.compile("LIKE\\s+['\"]%", Pattern.CASE_INSENSITIVE).matcher(sql).find()) {
             result.getTips().add("检测到以 % 开头的 LIKE 模糊匹配，无法利用普通索引，考虑全文索引或调整查询方式。");
         }
-        if (upper.contains("OR ")) {
+        if (Pattern.compile("\\bOR\\b").matcher(stripped).find()) {
             result.getTips().add("检测到 OR 条件，可能导致索引失效，可考虑改写为 UNION ALL 或 IN。");
         }
-        if (upper.contains("!=") || upper.contains("<>")) {
+        if (stripped.contains("!=") || stripped.contains("<>")) {
             result.getTips().add("检测到不等于（!= / <>）条件，通常无法使用索引，注意评估过滤效果。");
         }
+    }
+
+    /**
+     * 把字符串字面量替换为空占位，避免字面量内容触发关键字误报。
+     */
+    private String stripStringLiterals(String sql) {
+        return sql.replaceAll("'(?:''|[^'])*'", "''")
+                .replaceAll("\"(?:\"\"|[^\"])*\"", "\"\"");
     }
 }

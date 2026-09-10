@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='10' width='48' height='44' rx='6' fill='url(%23g)'/%3E%3Cpath d='M18 40 L28 28 L36 34 L46 20' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <title>SQL优化工具 - AI 模型配置</title>
+    <link rel="stylesheet" href="/libs/element-plus.index.css">
+    <link rel="stylesheet" href="/common.css">
+    <script src="/libs/vue.global.prod.js"></script>
+    <script src="/libs/element-plus.index.full.min.js"></script>
+    <script src="/libs/axios.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <div class="app-container">
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h1>SQL优化工具</h1>
+                    <p>智能索引建议与执行计划分析</p>
+                </div>
+                <nav class="menu">
+                    <a href="/manual.html" class="menu-item">
+                        <span class="menu-icon">✏️</span><span>手工优化</span>
+                    </a>
+                    <a href="/auto.html" class="menu-item">
+                        <span class="menu-icon">🔍</span><span>扫描优化</span>
+                    </a>
+                    <a href="/explain.html" class="menu-item">
+                        <span class="menu-icon">📊</span><span>SQL执行计划</span>
+                    </a>
+                    <a href="/datasource.html" class="menu-item">
+                        <span class="menu-icon">🔗</span><span>配置数据源</span>
+                    </a>
+                    <a href="/ai.html" class="menu-item active">
+                        <span class="menu-icon">🤖</span><span>AI 模型</span>
+                    </a>
+                    <a href="/donate.html" class="menu-item">
+                        <span class="menu-icon">☕</span><span>打赏支持</span>
+                    </a>
+                </nav>
+            </aside>
+
+            <main class="main-content">
+                <div class="page-header">
+                    <h2>AI 模型配置</h2>
+                    <p>可保存多个 AI 模型（百炼 / DeepSeek / OpenAI / Anthropic 或内网 OpenAI 兼容网关），但同一时刻只能<strong>启用一个</strong>；启用其他模型会自动停用当前模型，SQL 深度优化始终使用已启用的模型</p>
+                </div>
+
+                <!-- 当前状态 -->
+                <div class="ds-banner" :class="activeProvider ? 'connected' : 'disconnected'">
+                    <span>{{ activeProvider ? '✅' : '💡' }}</span>
+                    <span v-if="activeProvider">
+                        当前已启用：{{ activeProvider.name }}（{{ activeProvider.protocol === 'ANTHROPIC' ? 'Anthropic' : 'OpenAI 兼容' }} / {{ activeProvider.model }}）
+                    </span>
+                    <span v-else>当前未启用 AI 模型。不启用也可使用规则引擎的索引建议与执行计划分析，仅「AI 深度优化」改写不可用</span>
+                </div>
+
+                <div class="content-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                        <div class="form-section-title" style="margin:0;">模型列表</div>
+                        <el-button type="primary" @click="openCreate">➕ 新增模型</el-button>
+                    </div>
+
+                    <el-table :data="list" stripe style="width:100%;" empty-text="还没有 AI 模型，点击右上角「新增模型」">
+                        <el-table-column prop="name" label="名称" min-width="120"></el-table-column>
+                        <el-table-column label="协议" width="120">
+                            <template #default="{ row }">
+                                {{ row.protocol === 'ANTHROPIC' ? 'Anthropic' : 'OpenAI 兼容' }}
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="baseUrl" label="Base URL" min-width="240" show-overflow-tooltip></el-table-column>
+                        <el-table-column prop="model" label="模型" min-width="140" show-overflow-tooltip></el-table-column>
+                        <el-table-column label="状态" width="90">
+                            <template #default="{ row }">
+                                <el-tag v-if="row.enabled" type="success">已启用</el-tag>
+                                <el-tag v-else type="info">未启用</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="最近探测" width="170">
+                            <template #default="{ row }">
+                                <el-tag v-if="row.lastTestOk === true" type="success" size="small">成功</el-tag>
+                                <el-tag v-else-if="row.lastTestOk === false" type="danger" size="small"
+                                        :title="row.lastTestMessage">失败（悬停查看）</el-tag>
+                                <el-tag v-else type="info" size="small">未测试</el-tag>
+                                <div v-if="row.lastTestAt" style="font-size:11px;color:#999;margin-top:2px;">
+                                    {{ formatTime(row.lastTestAt) }}
+                                </div>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="启用" width="70">
+                            <template #default="{ row }">
+                                <el-switch :model-value="row.enabled" :loading="togglingId === row.id"
+                                           @change="(val) => onToggle(row, val)"></el-switch>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="170">
+                            <template #default="{ row }">
+                                <el-button link type="primary" :loading="testingId === row.id" @click="onTestSaved(row)">测试</el-button>
+                                <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+                                <el-button link type="danger" @click="onDelete(row)">删除</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </div>
+
+                <!-- 新增 / 编辑弹窗 -->
+                <el-dialog v-model="dialogVisible" :title="form.id ? '编辑 AI 模型' : '新增 AI 模型'" width="580px">
+                    <el-form label-width="110px">
+                        <el-form-item label="名称" required>
+                            <el-input v-model="form.name" placeholder="便于识别的名称，如 百炼-qwen-max"></el-input>
+                        </el-form-item>
+                        <el-form-item label="协议" required>
+                            <el-select v-model="form.protocol" style="width:100%;" @change="onProtocolChange">
+                                <el-option label="OpenAI 兼容（百炼 / DeepSeek / OpenAI / 内网网关）" value="OPENAI"></el-option>
+                                <el-option label="Anthropic" value="ANTHROPIC"></el-option>
+                            </el-select>
+                        </el-form-item>
+                        <el-form-item label="Base URL" required>
+                            <el-input v-model="form.baseUrl" placeholder="如 https://dashscope.aliyuncs.com/compatible-mode/v1"></el-input>
+                        </el-form-item>
+                        <el-form-item label="模型名称" required>
+                            <el-input v-model="form.model" placeholder="如 qwen-max-latest / deepseek-chat / claude-3-5-sonnet-latest"></el-input>
+                        </el-form-item>
+                        <el-form-item label="API Key">
+                            <el-input v-model="form.apiKey" type="password" show-password
+                                      :placeholder="form.id ? '留空表示不修改原 Key' : 'API Key'"></el-input>
+                        </el-form-item>
+                        <el-form-item label="Max Tokens">
+                            <el-input-number v-model="form.maxTokens" :min="1" :max="200000" :step="1024"></el-input-number>
+                        </el-form-item>
+                        <el-form-item label="超时(秒)">
+                            <el-input-number v-model="form.timeoutSeconds" :min="5" :max="600"></el-input-number>
+                        </el-form-item>
+                    </el-form>
+                    <template #footer>
+                        <el-button @click="dialogVisible = false">取消</el-button>
+                        <el-button :loading="testingForm" @click="onTestForm">测试连通性</el-button>
+                        <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+                    </template>
+                </el-dialog>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, computed, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const list = ref([]);
+                const dialogVisible = ref(false);
+                const saving = ref(false);
+                const testingForm = ref(false);
+                const testingId = ref(null);
+                const togglingId = ref(null);
+                const form = reactive(emptyForm());
+
+                const activeProvider = computed(() => list.value.find(p => p.enabled) || null);
+
+                function emptyForm() {
+                    return { id: null, name: '', protocol: 'OPENAI',
+                             baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+                             model: '', apiKey: '', maxTokens: 4096, timeoutSeconds: 60 };
+                }
+
+                function apiError(e, fallback) {
+                    return e.response?.data?.message || e.message || fallback;
+                }
+
+                function formatTime(iso) {
+                    if (!iso) return '';
+                    return iso.replace('T', ' ').substring(0, 16);
+                }
+
+                const fetchList = async () => {
+                    try {
+                        const resp = await axios.get('/api/ai/list');
+                        if (resp.data.code === 200) list.value = resp.data.data || [];
+                    } catch (e) { /* 忽略 */ }
+                };
+
+                const onProtocolChange = async (val) => {
+                    try {
+                        const resp = await axios.get('/api/ai/protocol-defaults', { params: { protocol: val } });
+                        if (resp.data.code === 200) form.baseUrl = resp.data.data.defaultBaseUrl;
+                    } catch (e) { /* 忽略，保留用户输入 */ }
+                };
+
+                const openCreate = () => {
+                    Object.assign(form, emptyForm());
+                    dialogVisible.value = true;
+                };
+
+                const openEdit = (row) => {
+                    Object.assign(form, emptyForm(), {
+                        id: row.id, name: row.name, protocol: row.protocol,
+                        baseUrl: row.baseUrl, model: row.model, apiKey: '',
+                        maxTokens: row.maxTokens || 4096, timeoutSeconds: row.timeoutSeconds || 60
+                    });
+                    dialogVisible.value = true;
+                };
+
+                const validateForm = () => {
+                    if (!form.name || !form.baseUrl || !form.model) {
+                        ElementPlus.ElMessage.warning('名称、Base URL、模型名称不能为空');
+                        return false;
+                    }
+                    if (!form.id && !form.apiKey) {
+                        ElementPlus.ElMessage.warning('请填写 API Key');
+                        return false;
+                    }
+                    return true;
+                };
+
+                const onTestForm = async () => {
+                    if (!validateForm()) return;
+                    testingForm.value = true;
+                    try {
+                        const resp = await axios.post('/api/ai/test', { ...form });
+                        const r = resp.data.data;
+                        if (r.success) ElementPlus.ElMessage.success(r.message);
+                        else ElementPlus.ElMessage.error(r.message);
+                    } catch (e) {
+                        ElementPlus.ElMessage.error(apiError(e, '测试失败'));
+                    } finally {
+                        testingForm.value = false;
+                    }
+                };
+
+                const onSave = async () => {
+                    if (!validateForm()) return;
+                    saving.value = true;
+                    try {
+                        const resp = await axios.post('/api/ai/save', { ...form });
+                        if (resp.data.code === 200) {
+                            ElementPlus.ElMessage.success('已保存');
+                            dialogVisible.value = false;
+                            await fetchList();
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '保存失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error(apiError(e, '保存失败'));
+                    } finally {
+                        saving.value = false;
+                    }
+                };
+
+                const onTestSaved = async (row) => {
+                    testingId.value = row.id;
+                    try {
+                        const resp = await axios.post(`/api/ai/${row.id}/test`);
+                        const r = resp.data.data;
+                        if (r.success) ElementPlus.ElMessage.success(r.message);
+                        else ElementPlus.ElMessage.error(r.message);
+                        await fetchList();
+                    } catch (e) {
+                        ElementPlus.ElMessage.error(apiError(e, '测试失败'));
+                    } finally {
+                        testingId.value = null;
+                    }
+                };
+
+                /**
+                 * 开关只负责触发，互斥以后端返回为准——成功后重新拉列表，
+                 * 由后端事务保证同一时刻只有一行 enabled=true。
+                 */
+                const onToggle = async (row, val) => {
+                    togglingId.value = row.id;
+                    try {
+                        if (val) {
+                            const resp = await axios.post(`/api/ai/${row.id}/enable`);
+                            if (resp.data.code === 200) {
+                                const saved = resp.data.data;
+                                if (saved && saved.lastTestOk === false) {
+                                    ElementPlus.ElMessage.warning(
+                                        `已启用「${row.name}」，其他模型已自动停用；但连通性探测失败：${saved.lastTestMessage || ''}`);
+                                } else {
+                                    ElementPlus.ElMessage.success(`已启用「${row.name}」，其他模型已自动停用`);
+                                }
+                            } else {
+                                ElementPlus.ElMessage.error(resp.data.message || '启用失败');
+                            }
+                        } else {
+                            await axios.post(`/api/ai/${row.id}/disable`);
+                            ElementPlus.ElMessage.success(`已停用「${row.name}」`);
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error(apiError(e, '切换失败'));
+                    } finally {
+                        togglingId.value = null;
+                        await fetchList();
+                    }
+                };
+
+                const onDelete = (row) => {
+                    ElementPlus.ElMessageBox.confirm(
+                        `确定删除模型「${row.name}」？`, '删除确认',
+                        { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+                    ).then(async () => {
+                        try {
+                            const resp = await axios.post(`/api/ai/${row.id}/delete`);
+                            if (resp.data.code === 200) {
+                                ElementPlus.ElMessage.success('已删除');
+                                await fetchList();
+                            } else {
+                                ElementPlus.ElMessage.error(resp.data.message || '删除失败');
+                            }
+                        } catch (e) {
+                            ElementPlus.ElMessage.error(apiError(e, '删除失败'));
+                        }
+                    }).catch(() => {});
+                };
+
+                onMounted(fetchList);
+
+                return { list, activeProvider, dialogVisible, saving, testingForm, testingId, togglingId,
+                         form, formatTime, onProtocolChange, openCreate, openEdit, onTestForm, onSave,
+                         onTestSaved, onToggle, onDelete };
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html>
