@@ -81,7 +81,7 @@ java -jar sql-optimizer-tool-1.0.0.jar --server.port=8090 --server.address=0.0.0
 
 Deployment notes:
 
-- Database and AI configurations are stored in `./data` (embedded H2 file database) next to the working directory; logs go to `./logs/`. Persist/back up these directories.
+- Database and AI configurations are stored in `./data` (embedded H2 file database) next to the working directory; logs go to `./logs/`. Persist/back up these directories, and **never delete `./data`** or all configurations are lost. Always launch from the same working directory, or pin the store to an absolute path via `APP_DATA_DIR` (e.g. `APP_DATA_DIR=/var/sql-optimizer/data`); the startup log prints the resolved store location.
 - By default the app binds `127.0.0.1` only; set `--server.address=0.0.0.0` (plus gateway-level auth) for LAN access.
 - For drivers not bundled (e.g. DM/Dameng), use the "custom" database type and point to the driver jar on the server machine.
 - AI calls go directly from the server to the configured Base URL — make sure that endpoint is reachable from the intranet host.

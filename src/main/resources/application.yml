@@ -9,9 +9,11 @@ spring:
     resources:
       static-locations: classpath:/static/
 
-  # 配置库：保存多个数据库连接与 AI 模型配置（H2 文件库，随应用分发）
+  # 配置库：保存多个数据库连接与 AI 模型配置（H2 文件库）。
+  # 文件位置默认 ./data（相对于启动时的工作目录），可用环境变量
+  # APP_DATA_DIR 指向固定绝对路径，避免不同启动方式各建一份库。
   datasource:
-    url: jdbc:h2:file:./data/sql-optimizer;MODE=MySQL;AUTO_SERVER=TRUE
+    url: jdbc:h2:file:${app.data.dir}/sql-optimizer;MODE=MySQL;AUTO_SERVER=TRUE
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
@@ -26,6 +28,9 @@ spring:
 
 # 数据库密码 / AI API Key 落库加密口令（生产环境请通过环境变量覆盖）
 app:
+  # 配置库目录（数据库连接、AI 模型都保存在这里），默认 ./data，可用 APP_DATA_DIR 覆盖为绝对路径
+  data:
+    dir: ${APP_DATA_DIR:./data}
   crypto:
     password: ${APP_CRYPTO_PASSWORD:sql-optimizer-default-key-change-me}
     salt: ${APP_CRYPTO_SALT:7d2f91a4c6b80e3f}
