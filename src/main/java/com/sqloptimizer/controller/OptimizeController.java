@@ -81,7 +81,13 @@ public class OptimizeController {
         resp.setAiConfigured(aiService.isConfigured());
         if (dataSourceService.isConnected() && dataSourceService.getCurrentConfig() != null) {
             var c = dataSourceService.getCurrentConfig();
-            resp.setDataSourceInfo(c.getDbType() + " @ " + c.getHost() + ":" + c.getPort() + "/" + c.getDatabase());
+            String target = "custom".equalsIgnoreCase(c.getDbType())
+                    ? c.getCustomUrl()
+                    : c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+            resp.setDataSourceInfo(c.getDbType() + " @ " + target + "（" + c.getName() + "）");
+        }
+        if (aiService.isConfigured()) {
+            resp.setAiInfo(aiService.getActiveName());
         }
         return Result.success(resp);
     }
@@ -124,5 +130,7 @@ public class OptimizeController {
         private boolean dataSourceConnected;
         private boolean aiConfigured;
         private String dataSourceInfo;
+        /** 当前启用的 AI 模型展示名 */
+        private String aiInfo;
     }
 }
