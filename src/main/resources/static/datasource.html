@@ -32,6 +32,9 @@
                     <a href="/datasource.html" class="menu-item active">
                         <span class="menu-icon">🔗</span><span>配置数据源</span>
                     </a>
+                    <a href="/ai.html" class="menu-item">
+                        <span class="menu-icon">🤖</span><span>AI 模型</span>
+                    </a>
                     <a href="/donate.html" class="menu-item">
                         <span class="menu-icon">☕</span><span>打赏支持</span>
                     </a>
@@ -41,75 +44,55 @@
             <main class="main-content">
                 <div class="page-header">
                     <h2>配置数据源</h2>
-                    <p>可选功能。配置后可进行索引存在性检测、冗余索引分析、大小表驱动判断与执行计划分析</p>
+                    <p>可保存多个数据库连接，但同一时刻只能<strong>启用一个</strong>；启用其他连接会自动停用当前连接。配置后可进行索引存在性检测、冗余索引分析、大小表驱动判断与执行计划分析</p>
                 </div>
 
                 <!-- 当前状态 -->
-                <div class="ds-banner" :class="connected ? 'connected' : 'disconnected'">
-                    <span>{{ connected ? '✅' : '💡' }}</span>
-                    <span v-if="connected">当前已连接：{{ currentInfo }}</span>
-                    <span v-else>当前未连接数据源。不配置也可正常使用「手工优化」「扫描优化」（索引建议全部橙色展示）</span>
+                <div class="ds-banner" :class="status.connected ? 'connected' : 'disconnected'">
+                    <span>{{ status.connected ? '✅' : '💡' }}</span>
+                    <span v-if="status.connected">当前已启用：{{ currentInfo }}</span>
+                    <span v-else>当前未启用数据源。不启用也可正常使用「手工优化」「扫描优化」（索引建议全部橙色展示）</span>
                 </div>
 
-                <div class="content-card" style="max-width:640px;">
-                    <div class="form-section">
-                        <div class="form-section-title">数据库类型</div>
-                        <el-select v-model="form.dbType" placeholder="请选择数据库类型" style="width:100%;" @change="onDbTypeChange">
-                            <el-option label="MySQL" value="mysql"></el-option>
-                            <el-option label="Oracle" value="oracle"></el-option>
-                            <el-option label="PostgreSQL" value="postgresql"></el-option>
-                            <el-option label="达梦数据库 (DM)" value="dameng"></el-option>
-                            <el-option label="高斯数据库 (GaussDB / openGauss)" value="gaussdb"></el-option>
-                            <el-option label="人大金仓 (KingBase)" value="kingbase"></el-option>
-                            <el-option label="OceanBase" value="oceanbase"></el-option>
-                            <el-option label="TiDB" value="tidb"></el-option>
-                        </el-select>
-                        <div v-if="form.dbType === 'dameng'" style="font-size:12px;color:#d48806;margin-top:6px;">
-                            ⚠️ 达梦驱动未包含在依赖中，需将 DmJdbcDriver 放入 drivers/ 目录并加入 classpath（详见 README）
-                        </div>
-                        <div v-if="form.dbType === 'oracle'" style="font-size:12px;color:#666;margin-top:6px;">
-                            💡 Oracle 的「数据库名 / Schema」请填写服务名（Service Name），连接串格式：jdbc:oracle:thin:@//host:port/service
-                        </div>
+                <div class="content-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                        <div class="form-section-title" style="margin:0;">数据库连接列表</div>
+                        <el-button type="primary" @click="openCreate">➕ 新增数据源</el-button>
                     </div>
 
-                    <div class="form-section" style="display:flex;gap:15px;">
-                        <div style="flex:2;">
-                            <div class="form-section-title">主机地址</div>
-                            <el-input v-model="form.host" placeholder="如 127.0.0.1"></el-input>
-                        </div>
-                        <div style="flex:1;">
-                            <div class="form-section-title">端口</div>
-                            <el-input v-model.number="form.port" placeholder="端口"></el-input>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-section-title">数据库名 / Schema</div>
-                        <el-input v-model="form.database" placeholder="数据库名"></el-input>
-                    </div>
-
-                    <div class="form-section" style="display:flex;gap:15px;">
-                        <div style="flex:1;">
-                            <div class="form-section-title">用户名</div>
-                            <el-input v-model="form.username" placeholder="用户名"></el-input>
-                        </div>
-                        <div style="flex:1;">
-                            <div class="form-section-title">密码</div>
-                            <el-input v-model="form.password" type="password" placeholder="密码" show-password></el-input>
-                        </div>
-                    </div>
-
-                    <div class="button-group">
-                        <el-button type="primary" size="large" @click="doConnect" :loading="loading">
-                            🔗 测试并连接
-                        </el-button>
-                        <el-button v-if="connected" type="danger" size="large" @click="doDisconnect">
-                            断开连接
-                        </el-button>
-                    </div>
+                    <el-table :data="list" stripe style="width:100%;" empty-text="还没有数据源，点击右上角「新增数据源」">
+                        <el-table-column prop="name" label="名称" min-width="120"></el-table-column>
+                        <el-table-column prop="dbType" label="类型" width="110"></el-table-column>
+                        <el-table-column label="连接地址" min-width="220">
+                            <template #default="{ row }">
+                                <span v-if="row.dbType === 'custom'" :title="row.customUrl">{{ row.customUrl }}</span>
+                                <span v-else>{{ row.host }}:{{ row.port }}/{{ row.databaseName }}</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="状态" width="150">
+                            <template #default="{ row }">
+                                <el-tag v-if="row.enabled && status.connected && status.config && status.config.id === row.id" type="success">已启用</el-tag>
+                                <el-tag v-else-if="row.enabled" type="warning">启用中·连接失败</el-tag>
+                                <el-tag v-else type="info">未启用</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="启用" width="70">
+                            <template #default="{ row }">
+                                <el-switch :model-value="row.enabled" :loading="togglingId === row.id"
+                                           @change="(val) => onToggle(row, val)"></el-switch>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="210">
+                            <template #default="{ row }">
+                                <el-button link type="primary" :loading="testingId === row.id" @click="onTestSaved(row)">测试</el-button>
+                                <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+                                <el-button link type="danger" @click="onDelete(row)">删除</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
                 </div>
 
-                <div class="content-card" style="max-width:640px;">
+                <div class="content-card">
                     <div class="form-section-title">默认端口参考</div>
                     <div style="font-size:13px;color:#666;line-height:2;">
                         MySQL：<strong>3306</strong> ·
@@ -122,6 +105,83 @@
                         TiDB：<strong>4000</strong>
                     </div>
                 </div>
+
+                <!-- 新增 / 编辑弹窗 -->
+                <el-dialog v-model="dialogVisible" :title="form.id ? '编辑数据源' : '新增数据源'" width="560px">
+                    <el-form label-width="110px">
+                        <el-form-item label="名称" required>
+                            <el-input v-model="form.name" placeholder="便于识别的名称，如 生产-MySQL"></el-input>
+                        </el-form-item>
+                        <el-form-item label="数据库类型" required>
+                            <el-select v-model="form.dbType" placeholder="请选择数据库类型" style="width:100%;" @change="onDbTypeChange">
+                                <el-option label="MySQL" value="mysql"></el-option>
+                                <el-option label="Oracle" value="oracle"></el-option>
+                                <el-option label="PostgreSQL" value="postgresql"></el-option>
+                                <el-option label="达梦数据库 (DM)" value="dameng"></el-option>
+                                <el-option label="高斯数据库 (GaussDB / openGauss)" value="gaussdb"></el-option>
+                                <el-option label="人大金仓 (KingBase)" value="kingbase"></el-option>
+                                <el-option label="OceanBase" value="oceanbase"></el-option>
+                                <el-option label="TiDB" value="tidb"></el-option>
+                                <el-option label="自定义（完整 JDBC URL / 外部驱动 jar）" value="custom"></el-option>
+                            </el-select>
+                        </el-form-item>
+
+                        <!-- 预设类型：主机/端口/库名 -->
+                        <template v-if="form.dbType !== 'custom'">
+                            <div v-if="form.dbType === 'dameng'" style="font-size:12px;color:#d48806;margin:-6px 0 10px 110px;">
+                                ⚠️ 达梦驱动未内置：可改用下方「自定义」类型，指定 DmJdbcDriver 的 jar 路径
+                            </div>
+                            <div v-if="form.dbType === 'oracle'" style="font-size:12px;color:#666;margin:-6px 0 10px 110px;">
+                                💡 Oracle 的「数据库名 / Schema」请填写服务名（Service Name），连接串格式：jdbc:oracle:thin:@//host:port/service
+                            </div>
+                            <el-form-item label="主机地址" required>
+                                <el-input v-model="form.host" placeholder="如 127.0.0.1"></el-input>
+                            </el-form-item>
+                            <el-form-item label="端口">
+                                <el-input v-model.number="form.port" placeholder="端口"></el-input>
+                            </el-form-item>
+                            <el-form-item label="数据库名" required>
+                                <el-input v-model="form.databaseName" placeholder="数据库名 / Schema / Oracle 服务名"></el-input>
+                            </el-form-item>
+                        </template>
+
+                        <!-- 自定义类型：完整 URL / 驱动类 / 驱动 jar -->
+                        <template v-else>
+                            <el-form-item label="JDBC URL" required>
+                                <el-input v-model="form.customUrl" placeholder="jdbc:dm://127.0.0.1:5236?schema=xxx"></el-input>
+                            </el-form-item>
+                            <el-form-item label="驱动类名" required>
+                                <el-input v-model="form.customDriver" placeholder="如 dm.jdbc.driver.DmDriver">
+                                    <template #append>
+                                        <el-button :loading="discovering" @click="onDiscoverDrivers">扫描 jar</el-button>
+                                    </template>
+                                </el-input>
+                            </el-form-item>
+                            <el-form-item label="驱动 jar 路径">
+                                <el-input v-model="form.customJarPath" placeholder="服务器本地 jar 文件或目录，多个用 ; 分隔；驱动已内置时可留空"></el-input>
+                            </el-form-item>
+                            <div style="font-size:12px;color:#999;margin:-6px 0 10px 110px;">
+                                应用运行机器上的路径；点「扫描 jar」可自动读取驱动类名
+                            </div>
+                        </template>
+
+                        <el-form-item label="附加 JDBC 参数">
+                            <el-input v-model="form.extraParams" placeholder="可选，如 useUnicode=true&amp;characterEncoding=utf8（自动拼接，分号风格 URL 自动适配）"></el-input>
+                        </el-form-item>
+                        <el-form-item label="用户名">
+                            <el-input v-model="form.username" placeholder="用户名（部分数据库可留空）"></el-input>
+                        </el-form-item>
+                        <el-form-item label="密码">
+                            <el-input v-model="form.password" type="password" show-password
+                                      :placeholder="form.id ? '留空表示不修改原密码' : (form.dbType === 'custom' ? '密码（免密库可留空）' : '密码')"></el-input>
+                        </el-form-item>
+                    </el-form>
+                    <template #footer>
+                        <el-button @click="dialogVisible = false">取消</el-button>
+                        <el-button :loading="testingForm" @click="onTestForm">测试连接</el-button>
+                        <el-button type="primary" :loading="saving" @click="onSave">保存</el-button>
+                    </template>
+                </el-dialog>
             </main>
         </div>
     </div>
@@ -135,66 +195,215 @@
                     dameng: 5236, gaussdb: 5432, kingbase: 54321,
                     oceanbase: 2881, tidb: 4000, mysql: 3306, postgresql: 5432, oracle: 1521
                 };
-                const form = reactive({
-                    dbType: 'mysql', host: '127.0.0.1', port: 3306,
-                    database: '', username: '', password: ''
-                });
-                const loading = ref(false);
-                const connected = ref(false);
+                const list = ref([]);
+                const status = ref({ connected: false, config: null });
                 const currentInfo = ref('');
+                const dialogVisible = ref(false);
+                const saving = ref(false);
+                const testingForm = ref(false);
+                const testingId = ref(null);
+                const togglingId = ref(null);
+                const discovering = ref(false);
+                const form = reactive(emptyForm());
 
-                const onDbTypeChange = (val) => {
-                    if (defaultPorts[val]) form.port = defaultPorts[val];
-                };
+                function emptyForm() {
+                    return { id: null, name: '', dbType: 'mysql', host: '127.0.0.1', port: 3306,
+                             databaseName: '', username: '', password: '',
+                             customUrl: '', customDriver: '', customJarPath: '', extraParams: '' };
+                }
 
-                const fetchStatus = async () => {
+                function apiError(e, fallback) {
+                    return e.response?.data?.message || e.message || fallback;
+                }
+
+                const fetchAll = async () => {
                     try {
-                        const resp = await axios.get('/api/datasource/status');
-                        if (resp.data.code === 200) {
-                            connected.value = resp.data.data.connected;
-                            const c = resp.data.data.config;
+                        const [listResp, statusResp] = await Promise.all([
+                            axios.get('/api/datasource/list'),
+                            axios.get('/api/datasource/status')
+                        ]);
+                        if (listResp.data.code === 200) list.value = listResp.data.data || [];
+                        if (statusResp.data.code === 200) {
+                            status.value = statusResp.data.data;
+                            const c = status.value.config;
                             if (c) {
-                                currentInfo.value = `${c.dbType} @ ${c.host}:${c.port}/${c.database}`;
+                                const target = c.dbType === 'custom' ? c.customUrl : `${c.host}:${c.port}/${c.databaseName}`;
+                                currentInfo.value = `${c.name}：${c.dbType} @ ${target}`;
                             }
                         }
                     } catch (e) { /* 忽略 */ }
                 };
 
-                const doConnect = async () => {
-                    if (!form.dbType || !form.host || !form.database) {
-                        ElementPlus.ElMessage.warning('请填写数据库类型、主机、数据库名');
+                const onDbTypeChange = (val) => {
+                    if (defaultPorts[val]) form.port = defaultPorts[val];
+                };
+
+                const openCreate = () => {
+                    Object.assign(form, emptyForm());
+                    dialogVisible.value = true;
+                };
+
+                const openEdit = (row) => {
+                    Object.assign(form, emptyForm(), {
+                        id: row.id, name: row.name, dbType: row.dbType, host: row.host,
+                        port: row.port, databaseName: row.databaseName, username: row.username,
+                        password: '',
+                        customUrl: row.customUrl || '', customDriver: row.customDriver || '',
+                        customJarPath: row.customJarPath || '', extraParams: row.extraParams || ''
+                    });
+                    dialogVisible.value = true;
+                };
+
+                const validateForm = () => {
+                    if (!form.name || !form.dbType) {
+                        ElementPlus.ElMessage.warning('名称和数据库类型不能为空');
+                        return false;
+                    }
+                    if (form.dbType === 'custom') {
+                        if (!form.customUrl || !form.customDriver) {
+                            ElementPlus.ElMessage.warning('自定义类型必须填写 JDBC URL 和驱动类名');
+                            return false;
+                        }
+                    } else if (!form.host || !form.databaseName) {
+                        ElementPlus.ElMessage.warning('主机、数据库名不能为空');
+                        return false;
+                    }
+                    if (!form.id && !form.password && form.dbType !== 'custom') {
+                        ElementPlus.ElMessage.warning('请填写密码');
+                        return false;
+                    }
+                    return true;
+                };
+
+                const onDiscoverDrivers = async () => {
+                    if (!form.customJarPath) {
+                        ElementPlus.ElMessage.warning('请先填写驱动 jar 路径');
                         return;
                     }
-                    loading.value = true;
+                    discovering.value = true;
                     try {
-                        const resp = await axios.post('/api/datasource/connect', { ...form });
-                        if (resp.data.code === 200) {
-                            ElementPlus.ElMessage.success('数据源连接成功！现在可进行深度优化与执行计划分析');
-                            await fetchStatus();
+                        const resp = await axios.get('/api/datasource/discover-drivers',
+                                { params: { jarPath: form.customJarPath } });
+                        const drivers = resp.data.data?.drivers || [];
+                        if (drivers.length === 0) {
+                            ElementPlus.ElMessage.warning('jar 中未声明驱动类（无 META-INF/services/java.sql.Driver），请手动填写');
+                        } else if (drivers.length === 1) {
+                            form.customDriver = drivers[0];
+                            ElementPlus.ElMessage.success('已填充驱动类: ' + drivers[0]);
                         } else {
-                            ElementPlus.ElMessage.error(resp.data.message || '连接失败');
+                            // 多个候选时让用户选
+                            const { value } = await ElementPlus.ElMessageBox.confirm(
+                                '发现多个驱动类，是否使用第一个：' + drivers[0] + '？（点取消保持不变，可在下拉中查看全部）',
+                                '发现多个驱动', { confirmButtonText: '用第一个', cancelButtonText: '取消', type: 'info' }
+                            ).then(() => ({ value: true })).catch(() => ({ value: false }));
+                            if (value) form.customDriver = drivers[0];
+                            console.log('候选驱动类:', drivers);
                         }
                     } catch (e) {
-                        ElementPlus.ElMessage.error('连接失败: ' + (e.response?.data?.message || e.message));
+                        ElementPlus.ElMessage.error(apiError(e, '扫描失败'));
                     } finally {
-                        loading.value = false;
+                        discovering.value = false;
                     }
                 };
 
-                const doDisconnect = async () => {
+                const onTestForm = async () => {
+                    if (!validateForm()) return;
+                    testingForm.value = true;
                     try {
-                        await axios.post('/api/datasource/disconnect');
-                        connected.value = false;
-                        currentInfo.value = '';
-                        ElementPlus.ElMessage.success('已断开连接');
+                        const resp = await axios.post('/api/datasource/test', { ...form });
+                        const r = resp.data.data;
+                        if (r.success) ElementPlus.ElMessage.success(r.message);
+                        else ElementPlus.ElMessage.error(r.message);
                     } catch (e) {
-                        ElementPlus.ElMessage.error('断开失败: ' + (e.response?.data?.message || e.message));
+                        ElementPlus.ElMessage.error(apiError(e, '测试失败'));
+                    } finally {
+                        testingForm.value = false;
                     }
                 };
 
-                onMounted(fetchStatus);
+                const onSave = async () => {
+                    if (!validateForm()) return;
+                    saving.value = true;
+                    try {
+                        const resp = await axios.post('/api/datasource/save', { ...form });
+                        if (resp.data.code === 200) {
+                            ElementPlus.ElMessage.success('已保存');
+                            dialogVisible.value = false;
+                            await fetchAll();
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '保存失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error(apiError(e, '保存失败'));
+                    } finally {
+                        saving.value = false;
+                    }
+                };
 
-                return { form, loading, connected, currentInfo, onDbTypeChange, doConnect, doDisconnect };
+                const onTestSaved = async (row) => {
+                    testingId.value = row.id;
+                    try {
+                        const resp = await axios.post(`/api/datasource/${row.id}/test`);
+                        const r = resp.data.data;
+                        if (r.success) ElementPlus.ElMessage.success(r.message);
+                        else ElementPlus.ElMessage.error(r.message);
+                    } catch (e) {
+                        ElementPlus.ElMessage.error(apiError(e, '测试失败'));
+                    } finally {
+                        testingId.value = null;
+                    }
+                };
+
+                /**
+                 * 开关只负责触发，启互斥以后端返回为准——成功后重新拉列表，
+                 * 由后端保证同一时刻只有一行 enabled=true。
+                 */
+                const onToggle = async (row, val) => {
+                    togglingId.value = row.id;
+                    try {
+                        if (val) {
+                            const resp = await axios.post(`/api/datasource/${row.id}/enable`);
+                            if (resp.data.code === 200) {
+                                ElementPlus.ElMessage.success(`已启用「${row.name}」，其他连接已自动停用`);
+                            } else {
+                                ElementPlus.ElMessage.error(resp.data.message || '启用失败');
+                            }
+                        } else {
+                            await axios.post(`/api/datasource/${row.id}/disable`);
+                            ElementPlus.ElMessage.success(`已停用「${row.name}」`);
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error(apiError(e, '切换失败，原连接保持不变'));
+                    } finally {
+                        togglingId.value = null;
+                        await fetchAll();
+                    }
+                };
+
+                const onDelete = (row) => {
+                    ElementPlus.ElMessageBox.confirm(
+                        `确定删除数据源「${row.name}」？`, '删除确认',
+                        { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+                    ).then(async () => {
+                        try {
+                            const resp = await axios.post(`/api/datasource/${row.id}/delete`);
+                            if (resp.data.code === 200) {
+                                ElementPlus.ElMessage.success('已删除');
+                                await fetchAll();
+                            } else {
+                                ElementPlus.ElMessage.error(resp.data.message || '删除失败');
+                            }
+                        } catch (e) {
+                            ElementPlus.ElMessage.error(apiError(e, '删除失败'));
+                        }
+                    }).catch(() => {});
+                };
+
+                onMounted(fetchAll);
+
+                return { list, status, currentInfo, dialogVisible, saving, testingForm, testingId,
+                         togglingId, discovering, form, onDbTypeChange, openCreate, openEdit,
+                         onTestForm, onSave, onDiscoverDrivers, onTestSaved, onToggle, onDelete };
             }
         }).use(ElementPlus).mount('#app');
     </script>
