@@ -370,10 +370,11 @@ public class DataSourceService {
     }
 
     /**
-     * 表名只允许普通标识符字符，防止解析出的表名把额外 SQL 片段带进拼接语句。
+     * 表名只允许普通标识符字符（含反引号/双引号/方括号引用形式，如 MySQL 保留字 {@code `class`}），
+     * 防止解析出的表名把额外 SQL 片段带进拼接语句。
      */
     private String quoteIdentifier(String table) {
-        if (table == null || !table.matches("[A-Za-z0-9_$.]+")) {
+        if (table == null || !table.matches("[A-Za-z0-9_$.`\"\\[\\]]+")) {
             throw new IllegalArgumentException("非法表名: " + table);
         }
         return table;
@@ -445,11 +446,32 @@ public class DataSourceService {
 
     private List<String> distinctNames(String table) {
         String t = table == null ? "" : table.trim();
+        String bare = stripQuotes(t);
         LinkedHashSet<String> set = new LinkedHashSet<>();
+        // 同时尝试带引号（`class`、"class"、[class]）与去引号形式，
+        // JDBC 元数据接口通常需要不带引号的真实表名才能命中
         set.add(t);
+        set.add(bare);
         set.add(t.toUpperCase());
         set.add(t.toLowerCase());
+        set.add(bare.toUpperCase());
+        set.add(bare.toLowerCase());
         return new ArrayList<>(set);
+    }
+
+    /** 去掉标识符最外层的 MySQL 反引号 / 双引号 / SQL Server 方括号 */
+    private String stripQuotes(String name) {
+        String s = name.trim();
+        if (s.length() >= 2) {
+            char first = s.charAt(0);
+            char last = s.charAt(s.length() - 1);
+            if ((first == '`' && last == '`')
+                    || (first == '"' && last == '"')
+                    || (first == '[' && last == ']')) {
+                return s.substring(1, s.length() - 1);
+            }
+        }
+        return s;
     }
 
     private String resolveDriverClass(DatabaseConfig c) {
