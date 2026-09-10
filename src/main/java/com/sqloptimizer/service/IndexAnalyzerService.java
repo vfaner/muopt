@@ -42,9 +42,13 @@ public class IndexAnalyzerService {
             if (stmt instanceof Select select) {
                 analyzeSelect(select, suggestions);
             } else if (stmt instanceof Update update) {
-                analyzeWhere(update.getWhere(), resolveMainTable(update.getTable()), suggestions, "UPDATE 的 WHERE 过滤列");
+                Map<String, String> aliasMap = buildAliasMap(update.getTable(), null);
+                analyzeWhere(update.getWhere(), resolveMainTable(update.getTable()), aliasMap,
+                        suggestions, "UPDATE 的 WHERE 过滤列");
             } else if (stmt instanceof Delete delete) {
-                analyzeWhere(delete.getWhere(), resolveMainTable(delete.getTable()), suggestions, "DELETE 的 WHERE 过滤列");
+                Map<String, String> aliasMap = buildAliasMap(delete.getTable(), null);
+                analyzeWhere(delete.getWhere(), resolveMainTable(delete.getTable()), aliasMap,
+                        suggestions, "DELETE 的 WHERE 过滤列");
             }
         } catch (Exception e) {
             log.warn("SQL 解析失败，降级为无索引建议: {}", e.getMessage());
@@ -57,22 +61,24 @@ public class IndexAnalyzerService {
             return;
         }
 
-        // 主表
+        // 别名 -> 真实表名映射：SQL 里写的是 o.status，索引必须建在 t_order 上
+        Map<String, String> aliasMap = buildAliasMap(plain.getFromItem(), plain.getJoins());
+
+        // 主表（真实表名）
         String mainTable = null;
         if (plain.getFromItem() instanceof Table t) {
             mainTable = t.getName();
         }
 
         // WHERE 条件列
-        analyzeWhere(plain.getWhere(), mainTable, suggestions, "WHERE 过滤列");
+        analyzeWhere(plain.getWhere(), mainTable, aliasMap, suggestions, "WHERE 过滤列");
 
         // JOIN 连接列
         if (plain.getJoins() != null) {
             for (Join join : plain.getJoins()) {
-                String joinTable = (join.getRightItem() instanceof Table jt) ? jt.getName() : null;
                 if (join.getOnExpressions() != null) {
                     for (Expression on : join.getOnExpressions()) {
-                        analyzeJoinOn(on, suggestions);
+                        analyzeJoinOn(on, aliasMap, suggestions);
                     }
                 }
             }
@@ -82,7 +88,7 @@ public class IndexAnalyzerService {
         if (plain.getOrderByElements() != null) {
             for (OrderByElement ob : plain.getOrderByElements()) {
                 if (ob.getExpression() instanceof Column col) {
-                    ColumnRef ref = toRef(col, mainTable);
+                    ColumnRef ref = toRef(col, mainTable, aliasMap);
                     if (ref != null) {
                         addSuggestion(suggestions, ref.table, Collections.singletonList(ref.column), "ORDER BY 排序列");
                     }
@@ -94,7 +100,7 @@ public class IndexAnalyzerService {
         if (plain.getGroupBy() != null && plain.getGroupBy().getGroupByExpressionList() != null) {
             for (Object ge : plain.getGroupBy().getGroupByExpressionList()) {
                 if (ge instanceof Column col) {
-                    ColumnRef ref = toRef(col, mainTable);
+                    ColumnRef ref = toRef(col, mainTable, aliasMap);
                     if (ref != null) {
                         addSuggestion(suggestions, ref.table, Collections.singletonList(ref.column), "GROUP BY 分组列");
                     }
@@ -104,16 +110,60 @@ public class IndexAnalyzerService {
     }
 
     /**
+     * 收集 FROM 主表与所有 JOIN 表的「别名 -> 真实表名」映射。
+     * 同时把真实表名自身也登记进去，便于同一条 SQL 中混用别名与表名时归并为一条建议。
+     */
+    private Map<String, String> buildAliasMap(FromItem fromItem, List<Join> joins) {
+        Map<String, String> map = new LinkedHashMap<>();
+        registerTable(map, fromItem);
+        if (joins != null) {
+            for (Join join : joins) {
+                registerTable(map, join.getRightItem());
+            }
+        }
+        return map;
+    }
+
+    private void registerTable(Map<String, String> map, FromItem item) {
+        if (!(item instanceof Table t) || t.getName() == null) {
+            return;
+        }
+        String real = t.getName();
+        if (t.getAlias() != null && t.getAlias().getName() != null) {
+            map.put(normalizeKey(t.getAlias().getName()), real);
+        }
+        map.put(normalizeKey(real), real);
+    }
+
+    /**
+     * 把 SQL 中的表限定符（可能是别名）还原为真实表名；映射缺失时原样返回。
+     */
+    private String resolveTable(String name, Map<String, String> aliasMap) {
+        if (name == null) {
+            return null;
+        }
+        if (aliasMap == null || aliasMap.isEmpty()) {
+            return name;
+        }
+        return aliasMap.getOrDefault(normalizeKey(name), name);
+    }
+
+    private String normalizeKey(String s) {
+        return stripQuote(s).toLowerCase();
+    }
+
+    /**
      * 分析 WHERE 表达式，把同一个表的等值列组合为一个索引，范围列附在其后
      */
-    private void analyzeWhere(Expression where, String defaultTable, List<IndexSuggestion> suggestions, String reason) {
+    private void analyzeWhere(Expression where, String defaultTable, Map<String, String> aliasMap,
+                              List<IndexSuggestion> suggestions, String reason) {
         if (where == null) {
             return;
         }
         // 按表分组收集等值列与范围列
         Map<String, LinkedHashSet<String>> equalCols = new LinkedHashMap<>();
         Map<String, LinkedHashSet<String>> rangeCols = new LinkedHashMap<>();
-        collectWhereColumns(where, defaultTable, equalCols, rangeCols);
+        collectWhereColumns(where, defaultTable, aliasMap, equalCols, rangeCols);
 
         Set<String> tables = new LinkedHashSet<>();
         tables.addAll(equalCols.keySet());
@@ -140,42 +190,42 @@ public class IndexAnalyzerService {
     /**
      * 递归收集 WHERE 里的列，区分等值/范围。遇到 OR 则不组合（OR 分支各列独立更保险）
      */
-    private void collectWhereColumns(Expression expr, String defaultTable,
+    private void collectWhereColumns(Expression expr, String defaultTable, Map<String, String> aliasMap,
                                      Map<String, LinkedHashSet<String>> equalCols,
                                      Map<String, LinkedHashSet<String>> rangeCols) {
         if (expr instanceof AndExpression and) {
-            collectWhereColumns(and.getLeftExpression(), defaultTable, equalCols, rangeCols);
-            collectWhereColumns(and.getRightExpression(), defaultTable, equalCols, rangeCols);
+            collectWhereColumns(and.getLeftExpression(), defaultTable, aliasMap, equalCols, rangeCols);
+            collectWhereColumns(and.getRightExpression(), defaultTable, aliasMap, equalCols, rangeCols);
         } else if (expr instanceof OrExpression or) {
             // OR 两侧列各自作为独立范围候选，避免错误组合
-            collectWhereColumns(or.getLeftExpression(), defaultTable, rangeCols, rangeCols);
-            collectWhereColumns(or.getRightExpression(), defaultTable, rangeCols, rangeCols);
+            collectWhereColumns(or.getLeftExpression(), defaultTable, aliasMap, rangeCols, rangeCols);
+            collectWhereColumns(or.getRightExpression(), defaultTable, aliasMap, rangeCols, rangeCols);
         } else if (expr instanceof Parenthesis p) {
-            collectWhereColumns(p.getExpression(), defaultTable, equalCols, rangeCols);
+            collectWhereColumns(p.getExpression(), defaultTable, aliasMap, equalCols, rangeCols);
         } else if (expr instanceof EqualsTo eq) {
-            addColumnFromComparison(eq.getLeftExpression(), eq.getRightExpression(), defaultTable, equalCols);
+            addColumnFromComparison(eq.getLeftExpression(), eq.getRightExpression(), defaultTable, aliasMap, equalCols);
         } else if (expr instanceof InExpression in) {
             if (in.getLeftExpression() instanceof Column col) {
-                putColumn(equalCols, toRef(col, defaultTable));
+                putColumn(equalCols, toRef(col, defaultTable, aliasMap));
             }
         } else if (expr instanceof Between between) {
             if (between.getLeftExpression() instanceof Column col) {
-                putColumn(rangeCols, toRef(col, defaultTable));
+                putColumn(rangeCols, toRef(col, defaultTable, aliasMap));
             }
         } else if (expr instanceof GreaterThan gt) {
-            addColumnFromComparison(gt.getLeftExpression(), gt.getRightExpression(), defaultTable, rangeCols);
+            addColumnFromComparison(gt.getLeftExpression(), gt.getRightExpression(), defaultTable, aliasMap, rangeCols);
         } else if (expr instanceof GreaterThanEquals gte) {
-            addColumnFromComparison(gte.getLeftExpression(), gte.getRightExpression(), defaultTable, rangeCols);
+            addColumnFromComparison(gte.getLeftExpression(), gte.getRightExpression(), defaultTable, aliasMap, rangeCols);
         } else if (expr instanceof MinorThan mt) {
-            addColumnFromComparison(mt.getLeftExpression(), mt.getRightExpression(), defaultTable, rangeCols);
+            addColumnFromComparison(mt.getLeftExpression(), mt.getRightExpression(), defaultTable, aliasMap, rangeCols);
         } else if (expr instanceof MinorThanEquals mte) {
-            addColumnFromComparison(mte.getLeftExpression(), mte.getRightExpression(), defaultTable, rangeCols);
+            addColumnFromComparison(mte.getLeftExpression(), mte.getRightExpression(), defaultTable, aliasMap, rangeCols);
         } else if (expr instanceof LikeExpression like) {
             // 仅前缀匹配（不以 % 开头）的 LIKE 才能用索引
             if (like.getLeftExpression() instanceof Column col
                     && like.getRightExpression() instanceof StringValue sv
                     && !sv.getValue().startsWith("%")) {
-                putColumn(rangeCols, toRef(col, defaultTable));
+                putColumn(rangeCols, toRef(col, defaultTable, aliasMap));
             }
         }
     }
@@ -183,19 +233,19 @@ public class IndexAnalyzerService {
     /**
      * JOIN ON 条件：两侧都是列时，各自建议索引
      */
-    private void analyzeJoinOn(Expression on, List<IndexSuggestion> suggestions) {
+    private void analyzeJoinOn(Expression on, Map<String, String> aliasMap, List<IndexSuggestion> suggestions) {
         if (on instanceof AndExpression and) {
-            analyzeJoinOn(and.getLeftExpression(), suggestions);
-            analyzeJoinOn(and.getRightExpression(), suggestions);
+            analyzeJoinOn(and.getLeftExpression(), aliasMap, suggestions);
+            analyzeJoinOn(and.getRightExpression(), aliasMap, suggestions);
         } else if (on instanceof EqualsTo eq) {
             if (eq.getLeftExpression() instanceof Column lc) {
-                ColumnRef ref = toRef(lc, null);
+                ColumnRef ref = toRef(lc, null, aliasMap);
                 if (ref != null && ref.table != null) {
                     addSuggestion(suggestions, ref.table, Collections.singletonList(ref.column), "JOIN 连接列");
                 }
             }
             if (eq.getRightExpression() instanceof Column rc) {
-                ColumnRef ref = toRef(rc, null);
+                ColumnRef ref = toRef(rc, null, aliasMap);
                 if (ref != null && ref.table != null) {
                     addSuggestion(suggestions, ref.table, Collections.singletonList(ref.column), "JOIN 连接列");
                 }
@@ -204,11 +254,12 @@ public class IndexAnalyzerService {
     }
 
     private void addColumnFromComparison(Expression left, Expression right, String defaultTable,
+                                         Map<String, String> aliasMap,
                                          Map<String, LinkedHashSet<String>> target) {
         if (left instanceof Column col) {
-            putColumn(target, toRef(col, defaultTable));
+            putColumn(target, toRef(col, defaultTable, aliasMap));
         } else if (right instanceof Column col) {
-            putColumn(target, toRef(col, defaultTable));
+            putColumn(target, toRef(col, defaultTable, aliasMap));
         }
     }
 
@@ -219,17 +270,18 @@ public class IndexAnalyzerService {
         map.computeIfAbsent(ref.table, k -> new LinkedHashSet<>()).add(ref.column);
     }
 
-    private ColumnRef toRef(Column col, String defaultTable) {
+    private ColumnRef toRef(Column col, String defaultTable, Map<String, String> aliasMap) {
         if (col == null) {
             return null;
         }
-        String table = null;
+        String table;
         if (col.getTable() != null && col.getTable().getName() != null) {
             table = col.getTable().getName();
         } else {
             table = defaultTable;
         }
-        return new ColumnRef(table, col.getColumnName());
+        // 关键：限定符可能是别名，必须还原为真实表名，否则 CREATE INDEX 会建在不存在的表上
+        return new ColumnRef(resolveTable(table, aliasMap), col.getColumnName());
     }
 
     private String resolveMainTable(Table table) {
