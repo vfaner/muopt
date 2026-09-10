@@ -2,13 +2,14 @@ package com.sqloptimizer;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 
 /**
  * SQL优化工具启动类
- * 排除默认数据源自动配置——数据源由用户在页面上动态配置（非必需）
+ *
+ * <p>平台数据源（H2 文件库 ./data）由 Spring Boot 自动配置，仅用于保存多数据源 / 多 AI 模型配置；
+ * 用户业务库的连接池由 DataSourceService 按启用配置手工创建与热切换。
  */
-@SpringBootApplication(exclude = {DataSourceAutoConfiguration.class})
+@SpringBootApplication
 public class SqlOptimizerApplication {
 
     public static void main(String[] args) {

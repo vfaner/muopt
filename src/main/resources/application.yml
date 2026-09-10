@@ -1,20 +1,34 @@
 server:
   port: 8090
+  # 本工具可浏览服务器目录并原地改写源文件，默认只监听本机回环地址。
+  # 如确需局域网访问，请自行改为 0.0.0.0 并在前置网关上加鉴权。
+  address: 127.0.0.1
 
 spring:
   web:
     resources:
       static-locations: classpath:/static/
 
-# AI 接口配置（阿里云百炼 OpenAI 兼容接口，可选）
-ai:
-  api:
-    # 阿里云百炼 API Key（在 https://bailian.console.aliyun.com 获取）
-    key: ${AI_API_KEY:YOUR_BAILIAN_API_KEY}
-    # 百炼 OpenAI 兼容接口地址
-    base-url: ${AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
-    # 文本模型（用于 SQL 深度优化）
-    model: ${AI_MODEL:qwen-max-latest}
+  # 配置库：保存多个数据库连接与 AI 模型配置（H2 文件库，随应用分发）
+  datasource:
+    url: jdbc:h2:file:./data/sql-optimizer;MODE=MySQL;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+    hikari:
+      pool-name: sql-optimizer-meta
+      maximum-pool-size: 5
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+
+# 数据库密码 / AI API Key 落库加密口令（生产环境请通过环境变量覆盖）
+app:
+  crypto:
+    password: ${APP_CRYPTO_PASSWORD:sql-optimizer-default-key-change-me}
+    salt: ${APP_CRYPTO_SALT:7d2f91a4c6b80e3f}
 
 logging:
   level:
