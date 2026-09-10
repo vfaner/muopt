@@ -41,6 +41,19 @@ public class ScanItem {
      */
     private String rawText;
 
+    /**
+     * rawText 在文件中的字符偏移量（扫描时记录）。
+     * 替换时优先按此偏移定位，避免同一文件内出现重复 SQL 时改错位置。
+     */
+    private int rawOffset = -1;
+
+    /**
+     * 原始文本中的参数占位符（MyBatis 的 #{...} / ${...}）。
+     * sourceSql 里这些占位符已被替换为 ? / col_x 以便解析，
+     * 因此回写时必须校验它们仍然存在，否则会把参数绑定改成硬编码常量。
+     */
+    private List<String> placeholders = new ArrayList<>();
+
     /** 规整后的源 SQL（去除占位符/拼接后的可解析 SQL） */
     private String sourceSql;
 

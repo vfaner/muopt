@@ -6,10 +6,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -53,6 +57,18 @@ public class ProjectScanService {
             "<(if|choose|when|otherwise|foreach|where|set|trim|bind|include)\\b",
             Pattern.CASE_INSENSITIVE);
 
+    /** 参数占位符：MyBatis 的 #{...} 与 ${...} */
+    private static final Pattern SQL_PLACEHOLDER = Pattern.compile("[#$]\\{[^}]*}");
+
+    /** 单次扫描允许的 AI 调用条数上限（AI 是串行远程调用，不设上限会把请求挂死） */
+    private static final int MAX_AI_CALLS_PER_SCAN = 20;
+
+    /**
+     * 本进程内已扫描过的项目根目录（规范化绝对路径）。
+     * 替换只允许作用于这些目录内的文件，防止请求方指定任意路径写入。
+     */
+    private final Set<String> scannedRoots = ConcurrentHashMap.newKeySet();
+
     @Autowired
     public ProjectScanService(SqlOptimizerService optimizerService) {
         this.optimizerService = optimizerService;
@@ -69,6 +85,8 @@ public class ProjectScanService {
         if (!Files.exists(root) || !Files.isDirectory(root)) {
             throw new IllegalArgumentException("目录不存在或不是文件夹: " + projectPath);
         }
+        // 登记为可替换根目录（replace 只允许改动这些目录内的文件）
+        scannedRoots.add(canonical(root));
 
         List<ScanItem> items = new ArrayList<>();
         int[] counter = {0};
@@ -96,17 +114,33 @@ public class ProjectScanService {
             throw new RuntimeException("遍历项目目录失败: " + e.getMessage(), e);
         }
 
-        // 逐条优化
+        // 逐条优化。AI 调用是串行的远程请求（单条最长 120s），条数多时必须设上限，
+        // 否则一次扫描会让请求挂到超时。超出上限的条目仍给出本地规则分析。
+        int aiBudget = enableAi ? MAX_AI_CALLS_PER_SCAN : 0;
+        if (enableAi && items.size() > MAX_AI_CALLS_PER_SCAN) {
+            log.warn("扫描出 {} 条 SQL，超过单次 AI 优化上限 {}，其余条目只做本地规则分析",
+                    items.size(), MAX_AI_CALLS_PER_SCAN);
+        }
         for (ScanItem item : items) {
+            boolean useAi = aiBudget > 0;
             try {
-                OptimizeResult r = optimizerService.optimize(item.getSourceSql(), enableAi);
+                OptimizeResult r = optimizerService.optimize(item.getSourceSql(), useAi);
                 item.setOptimizedSql(r.getOptimizedSql());
                 item.setIndexSuggestions(r.getIndexSuggestions());
-                item.setTips(r.getTips());
+                item.getTips().addAll(r.getTips());
                 item.setAiOptimized(r.isAiOptimized());
+                if (useAi) {
+                    aiBudget--;
+                }
             } catch (Exception e) {
                 item.setOptimizedSql(item.getSourceSql());
                 item.getTips().add("该条 SQL 优化失败：" + e.getMessage());
+            }
+        }
+        if (enableAi && items.size() > MAX_AI_CALLS_PER_SCAN) {
+            for (int i = MAX_AI_CALLS_PER_SCAN; i < items.size(); i++) {
+                items.get(i).getTips().add("已达单次扫描的 AI 优化上限（" + MAX_AI_CALLS_PER_SCAN
+                        + " 条），该条仅做本地规则分析。可缩小扫描范围后重试。");
             }
         }
         return items;
@@ -131,6 +165,11 @@ public class ProjectScanService {
             // 含动态标签时，标记为不可安全整体替换，仅供参考
             if (MYBATIS_DYNAMIC.matcher(body).find()) {
                 item.getTips().add("包含 MyBatis 动态标签，无法安全整体替换，仅供参考");
+            }
+            if (!item.getPlaceholders().isEmpty()) {
+                item.getTips().add("原文含参数占位符 " + String.join("、", item.getPlaceholders())
+                        + "，展示的 SQL 中已替换为 ? 便于解析。回写时必须把占位符原样写回，"
+                        + "否则参数绑定会变成硬编码常量——替换前请在优化结果中改回占位符。");
             }
             items.add(item);
         }
@@ -272,23 +311,81 @@ public class ProjectScanService {
 
     private void extractFromSqlFile(Path root, Path file, List<ScanItem> items, int[] counter) throws IOException {
         String content = Files.readString(file, StandardCharsets.UTF_8);
-        // 去行注释后按分号拆分
-        String noComment = content.replaceAll("--[^\\n]*", "");
-        int searchFrom = 0;
-        for (String stmt : noComment.split(";")) {
-            String sql = stmt.replaceAll("(?s)/\\*.*?\\*/", "").replaceAll("\\s+", " ").trim();
-            if (sql.isEmpty() || !SQL_START.matcher(sql).find() || !looksLikeSql(sql)) {
-                continue;
+        // 在原文上按顶层分号切分（跳过注释与字符串字面量中的分号），
+        // 这样 rawText 能与文件原文逐字一致，行号与替换定位才准确。
+        int segStart = 0;
+        boolean inSingle = false, inDouble = false, inLineComment = false, inBlockComment = false;
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            char next = i + 1 < content.length() ? content.charAt(i + 1) : '\0';
+            if (inLineComment) {
+                if (c == '\n') inLineComment = false;
+            } else if (inBlockComment) {
+                if (c == '*' && next == '/') {
+                    inBlockComment = false;
+                    i++;
+                }
+            } else if (inSingle) {
+                if (c == '\'') inSingle = false;
+            } else if (inDouble) {
+                if (c == '"') inDouble = false;
+            } else if (c == '-' && next == '-') {
+                inLineComment = true;
+                i++;
+            } else if (c == '/' && next == '*') {
+                inBlockComment = true;
+                i++;
+            } else if (c == '\'') {
+                inSingle = true;
+            } else if (c == '"') {
+                inDouble = true;
+            } else if (c == ';') {
+                addSqlSegment(root, file, content, segStart, i, items, counter);
+                segStart = i + 1;
             }
-            // 用原始（未压缩空白）的片段作为 rawText，便于替换定位
-            String rawTrimmed = stmt.trim();
-            int idx = content.indexOf(rawTrimmed, searchFrom);
-            if (idx >= 0) {
-                searchFrom = idx + rawTrimmed.length();
-            }
-            ScanItem item = newItem(root, file, content, idx >= 0 ? idx : 0, rawTrimmed, sql, "SQL_FILE", counter);
-            items.add(item);
         }
+        addSqlSegment(root, file, content, segStart, content.length(), items, counter);
+    }
+
+    /**
+     * 把 [from, to) 区间当作一条 SQL 收录。rawText 取原文片段（保留内部注释与换行），
+     * sourceSql 才做去注释与空白压缩。
+     */
+    private void addSqlSegment(Path root, Path file, String content, int from, int to,
+                              List<ScanItem> items, int[] counter) {
+        // 跳过语句前的空白与整段前置注释，让 rawText 从真正的 SQL 首字符开始
+        int start = from;
+        while (start < to) {
+            char c = content.charAt(start);
+            if (Character.isWhitespace(c)) {
+                start++;
+            } else if (c == '-' && start + 1 < to && content.charAt(start + 1) == '-') {
+                int nl = content.indexOf('\n', start);
+                start = (nl < 0 || nl >= to) ? to : nl + 1;
+            } else if (c == '/' && start + 1 < to && content.charAt(start + 1) == '*') {
+                int end = content.indexOf("*/", start);
+                start = (end < 0 || end + 2 > to) ? to : end + 2;
+            } else {
+                break;
+            }
+        }
+        int end = to;
+        while (end > start && Character.isWhitespace(content.charAt(end - 1))) {
+            end--;
+        }
+        if (end <= start) {
+            return;
+        }
+        String rawText = content.substring(start, end);
+        String sql = stripSqlComments(rawText).replaceAll("\\s+", " ").trim();
+        if (sql.isEmpty() || !SQL_START.matcher(sql).find() || !looksLikeSql(sql)) {
+            return;
+        }
+        items.add(newItem(root, file, content, start, rawText, sql, "SQL_FILE", counter));
+    }
+
+    private String stripSqlComments(String s) {
+        return s.replaceAll("(?s)/\\*.*?\\*/", " ").replaceAll("--[^\\n]*", " ");
     }
 
     // ---------- 通用工具 ----------
@@ -304,11 +401,23 @@ public class ProjectScanService {
         item.setRelativePath(root.relativize(file).toString());
         item.setSourceType(sourceType);
         item.setRawText(rawText);
+        item.setRawOffset(offset);
+        item.setPlaceholders(findPlaceholders(rawText));
         item.setSourceSql(sql);
         int start = lineOf(content, offset);
         item.setStartLine(start);
         item.setEndLine(start + (int) rawText.chars().filter(c -> c == '\n').count());
         return item;
+    }
+
+    /** 提取原始文本中出现的参数占位符（去重、保留出现顺序） */
+    private List<String> findPlaceholders(String rawText) {
+        LinkedHashSet<String> found = new LinkedHashSet<>();
+        Matcher m = SQL_PLACEHOLDER.matcher(rawText == null ? "" : rawText);
+        while (m.find()) {
+            found.add(m.group());
+        }
+        return new ArrayList<>(found);
     }
 
     /** 计算偏移量所在行号（1 起） */
@@ -362,37 +471,118 @@ public class ProjectScanService {
             throw new IllegalArgumentException("优化后的 SQL 不能为空");
         }
         Path file = Paths.get(item.getFilePath());
-        if (!Files.exists(file)) {
+        if (!Files.exists(file) || !Files.isRegularFile(file)) {
             throw new IllegalArgumentException("文件不存在: " + item.getFilePath());
         }
+        // 只允许改动本进程扫描过的项目目录内的文件（filePath 来自请求体，不可信）
+        assertInScannedRoot(file);
         // 动态 MyBatis SQL 不允许整体替换，避免破坏动态标签
         if ("MYBATIS_XML".equals(item.getSourceType())
                 && item.getRawText() != null && MYBATIS_DYNAMIC.matcher(item.getRawText()).find()) {
             throw new IllegalStateException("该 SQL 含 MyBatis 动态标签，无法安全整体替换");
         }
+        // 参数占位符必须原样保留，否则会把参数绑定改成硬编码常量（业务逻辑被静默改错）
+        assertPlaceholdersKept(item, optimizedSql);
         try {
             String content = Files.readString(file, StandardCharsets.UTF_8);
             String raw = item.getRawText();
-            if (raw == null || !content.contains(raw)) {
-                throw new IllegalStateException("未在文件中定位到原始 SQL 文本，可能已被修改，替换终止");
+            if (raw == null || raw.isEmpty()) {
+                throw new IllegalStateException("扫描记录缺少原始 SQL 文本，替换终止");
             }
-            // 依来源类型构造替换文本
-            String replacement = buildReplacement(item, optimizedSql);
+            int idx = locate(content, raw, item.getRawOffset());
 
-            // 只替换第一处匹配，避免误伤重复片段
-            int idx = content.indexOf(raw);
+            String replacement = buildReplacement(item, optimizedSql);
             String updated = content.substring(0, idx) + replacement + content.substring(idx + raw.length());
 
-            // 备份
-            Path backup = file.resolveSibling(file.getFileName() + ".bak");
+            // 备份用唯一文件名，避免同一文件多次替换时把上一次的备份覆盖成已改动的内容
+            Path backup = uniqueBackupPath(file);
             Files.writeString(backup, content, StandardCharsets.UTF_8);
-            // 写回
             Files.writeString(file, updated, StandardCharsets.UTF_8);
             log.info("已替换 SQL 并备份: {} (备份: {})", file, backup.getFileName());
             return true;
         } catch (IOException e) {
             throw new RuntimeException("替换失败: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * 定位 rawText 在文件中的位置。
+     * 优先命中扫描时记录的偏移量；若同一文件的前序替换让后续偏移整体位移，
+     * 则在所有匹配位置中取「离记录偏移最近」的一处——这样同一文件内的多条重复 SQL
+     * 仍能各自替换到正确位置，而不会像取首个匹配那样改错地方。
+     */
+    private int locate(String content, String raw, int recordedOffset) {
+        if (recordedOffset >= 0 && content.startsWith(raw, recordedOffset)) {
+            return recordedOffset;
+        }
+        List<Integer> hits = new ArrayList<>();
+        for (int i = content.indexOf(raw); i >= 0; i = content.indexOf(raw, i + 1)) {
+            hits.add(i);
+        }
+        if (hits.isEmpty()) {
+            throw new IllegalStateException("未在文件中定位到原始 SQL 文本，可能已被修改，替换终止");
+        }
+        if (hits.size() == 1) {
+            return hits.get(0);
+        }
+        if (recordedOffset < 0) {
+            throw new IllegalStateException(
+                    "该 SQL 在文件中出现多处且扫描记录缺少位置信息，无法确定替换位置，请重新扫描后再替换");
+        }
+        int best = hits.get(0);
+        for (int hit : hits) {
+            if (Math.abs(hit - recordedOffset) < Math.abs(best - recordedOffset)) {
+                best = hit;
+            }
+        }
+        return best;
+    }
+
+    private void assertPlaceholdersKept(ScanItem item, String optimizedSql) {
+        List<String> placeholders = item.getPlaceholders();
+        if (placeholders == null || placeholders.isEmpty()) {
+            return;
+        }
+        List<String> missing = placeholders.stream()
+                .filter(p -> !optimizedSql.contains(p))
+                .toList();
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException("优化后的 SQL 丢失了参数占位符 " + String.join("、", missing)
+                    + "（展示用的 SQL 已把它们替换成 ? / col_x）。直接回写会让参数绑定变成硬编码常量，"
+                    + "替换已终止。请先在优化后的 SQL 中把占位符原样写回，再执行替换。");
+        }
+    }
+
+    private void assertInScannedRoot(Path file) {
+        if (scannedRoots.isEmpty()) {
+            throw new IllegalStateException("尚未扫描任何项目目录，请先执行扫描再替换");
+        }
+        String target = canonical(file);
+        boolean allowed = scannedRoots.stream()
+                .anyMatch(root -> target.equals(root) || target.startsWith(root + File.separator));
+        if (!allowed) {
+            throw new IllegalArgumentException("目标文件不在本次扫描的项目目录内，拒绝替换: " + file);
+        }
+    }
+
+    /** 规范化为绝对真实路径，解析 symlink 与 ../，避免路径穿越绕过根目录校验 */
+    private String canonical(Path path) {
+        try {
+            return path.toRealPath().toString();
+        } catch (IOException e) {
+            return path.toAbsolutePath().normalize().toString();
+        }
+    }
+
+    /** 生成不冲突的备份路径：X.sql.20260907-153000.bak，同秒内冲突时追加序号 */
+    private Path uniqueBackupPath(Path file) {
+        String stamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").format(LocalDateTime.now());
+        Path backup = file.resolveSibling(file.getFileName() + "." + stamp + ".bak");
+        int seq = 1;
+        while (Files.exists(backup)) {
+            backup = file.resolveSibling(file.getFileName() + "." + stamp + "-" + seq++ + ".bak");
+        }
+        return backup;
     }
 
     /**
@@ -404,8 +594,14 @@ public class ProjectScanService {
             // 注解实参与普通字符串都替换为单条 Java 字符串字面量
             case "JAVA_STRING", "JAVA_ANNOTATION" ->
                     "\"" + sql.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-            // XML / SQL 文件直接替换文本内容
+            // XML 标签体：含 XML 元字符时用 CDATA 包裹，否则会破坏 XML 结构
+            case "MYBATIS_XML" -> needsCdata(sql) ? "<![CDATA[" + sql + "]]>" : sql;
+            // 独立 .sql 文件直接替换文本内容
             default -> sql;
         };
+    }
+
+    private boolean needsCdata(String sql) {
+        return sql.contains("<") || sql.contains(">") || sql.contains("&");
     }
 }
