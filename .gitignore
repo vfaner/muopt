@@ -4,3 +4,7 @@ logs/
 .idea/
 *.iml
 drivers/*.jar
+
+# 运行期数据（H2 配置库）与系统文件
+data/
+.DS_Store
