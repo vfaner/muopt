@@ -14,7 +14,7 @@ SQL 优化工具是一个基于 Spring Boot 3 的 Web 应用，针对给定的�
 - 🎨 **颜色区分状态**：已存在=灰色、缺失/未核实=橙色，一目了然，支持复制粘贴
 - ✏️ **手工优化**：粘贴单条 SQL 即时分析
 - 🔍 **扫描优化**：扫描项目目录，提取 MyBatis XML、Java 代码中的 SQL 字符串、注解中的 SQL（`@Select`/`@Insert`/`@Update`/`@Delete`/`@Query`），逐条分析并支持一键原地替换（自动 `.bak` 备份）
-- 🤖 **AI 深度优化**（可选）：集成阿里云百炼（通义千问），对 SQL 智能改写
+- 🤖 **AI 深度优化**（可选）：支持配置多个 AI 模型（百炼 / DeepSeek / OpenAI / Anthropic 及各类 OpenAI 兼容网关），同一时刻启用一个，对 SQL 智能改写
 - 🔗 **配置数据源**（可选）：配置后可进行——
   - 索引存在性检测（区分灰/橙）
   - 冗余索引检测（给出 DROP 建议）
@@ -41,7 +41,13 @@ SQL 优化工具是一个基于 Spring Boot 3 的 Web 应用，针对给定的�
 ![扫描优化](docs/sql_yh_zd.png)
 
 ### 🔗 配置数据源
+
+可保存多个数据库连接，通过开关互斥启用（启用新的会自动停用旧的），配置持久化保存、重启不丢。
 ![配置数据源](docs/sql_yh_sjy.png)
+
+### 🤖 AI 模型
+
+可保存多个 AI 模型配置（协议 / Base URL / 模型 / API Key），同一时刻只能启用一个；支持连接测试与最近探测状态展示。
 
 ### 📊 SQL 执行计划
 ![SQL执行计划](docs/sql_yh_zx.png)
@@ -50,9 +56,10 @@ SQL 优化工具是一个基于 Spring Boot 3 的 Web 应用，针对给定的�
 
 | 组件 | 技术 |
 |------|------|
-| 后端 | Spring Boot 3.2, JSqlParser 4.9, HikariCP, OkHttp 4.12 |
+| 后端 | Spring Boot 3.2, JSqlParser 4.9, HikariCP, JDK HttpClient |
 | 前端 | Vue 3 CDN + Element Plus CDN（纯 HTML，无构建工具） |
-| AI 接口 | 阿里云百炼 OpenAI 兼容接口（qwen-max） |
+| 配置存储 | H2 文件库（`./data`）+ Spring Data JPA；密码/API Key 使用 spring-security-crypto 加密落库 |
+| AI 接口 | OpenAI 兼容协议（百炼 / DeepSeek / OpenAI / 内网网关）+ Anthropic Messages 协议 |
 | 数据库驱动 | MySQL Connector/J、PostgreSQL JDBC、Oracle JDBC；达梦需手动加入 |
 | 构建 | Maven, JDK 17+ |
 
@@ -70,13 +77,26 @@ java -jar target/sql-optimizer-tool-1.0.0.jar
 
 访问：http://localhost:8090
 
-### 配置 AI（可选）
+打包产物为单个可执行 fat jar（约 61MB，内置 MySQL / PostgreSQL / Oracle 驱动与前端页面），拷到装有 **JDK 17+** 的内网机器即可直接运行，无需 Maven、无需联网：
 
 ```bash
-export AI_API_KEY=你的百炼API_Key
+java -jar sql-optimizer-tool-1.0.0.jar
+# 可选：覆盖端口 / 监听地址 / 配置库加密口令
+java -jar sql-optimizer-tool-1.0.0.jar --server.port=8090 --server.address=0.0.0.0
 ```
 
-不配置 API Key 也可正常使用索引分析（仅 AI 深度改写不可用）。
+部署说明：
+
+- 数据库与 AI 配置保存在运行目录下的 `./data`（H2 文件库），日志在 `./logs/`，部署时注意这两个目录的持久化与备份；
+- 默认只监听 `127.0.0.1`，局域网访问需加 `--server.address=0.0.0.0` 并自行在网关加鉴权；
+- 达梦等未内置驱动的数据库，使用「自定义」类型并把驱动 jar 放到运行机器上指定路径即可；
+- AI 调用从运行机器直接访问所配置的 Base URL，请确保内网到该地址的网络可达。
+
+### 配置 AI（可选）
+
+在左侧「AI 模型」页新增配置：选择协议（OpenAI 兼容 / Anthropic），填写 Base URL、模型名与 API Key，可先「测试连通性」再保存，最后打开启用开关。多个模型只能启用一个，切换启用会自动停用其他模型。Base URL 自由填写，任何 OpenAI 兼容的内网网关/自建推理服务均可接入。
+
+不启用任何模型也可正常使用索引分析（仅 AI 深度改写不可用）。
 
 ## 📊 支持的数据库（数据源连接）
 
@@ -90,6 +110,7 @@ export AI_API_KEY=你的百炼API_Key
 | 人大金仓 KingBase | `kingbase` | PostgreSQL 驱动 | 54321 |
 | OceanBase | `oceanbase` | MySQL 驱动 | 2881 |
 | TiDB | `tidb` | MySQL 驱动 | 4000 |
+| 自定义 | `custom` | 填写完整 JDBC URL + 驱动类名；驱动不在内置列表时可指定服务器本地 jar 路径（文件或目录，多个用 `;` 分隔），支持「扫描 jar」自动读取驱动类名；支持免密库与附加 URL 参数 | — |
 
 ### 达梦（DM）驱动说明
 
@@ -102,7 +123,7 @@ export AI_API_KEY=你的百炼API_Key
      -DgroupId=com.dameng -DartifactId=DmJdbcDriver18 \
      -Dversion=8.1 -Dpackaging=jar
    ```
-3. 在 `pom.xml` 中加入对应依赖后重新打包，或启动时用 `-cp` 追加该 jar。
+3. 在 `pom.xml` 中加入对应依赖后重新打包；也可以不重新打包——页面上选择「自定义」类型，直接指定服务器上该 jar 的路径（配合「扫描 jar」自动填充驱动类名）即可。
 
 ## 📡 API 接口
 
@@ -115,9 +136,17 @@ export AI_API_KEY=你的百炼API_Key
 | `/api/scan` | POST | 扫描项目目录并提取 SQL |
 | `/api/scan/replace` | POST | 将优化后的 SQL 替换回源文件（自动 `.bak` 备份） |
 | `/api/scan/dirs` | GET | 浏览服务器目录树（供目录选择器使用） |
-| `/api/datasource/connect` | POST | 测试并连接数据源 |
-| `/api/datasource/disconnect` | POST | 断开数据源 |
-| `/api/datasource/status` | GET | 当前数据源状态 |
+| `/api/datasource/list` | GET | 全部数据库连接（密码不回传） |
+| `/api/datasource/save` | POST | 新建/更新连接（编辑时密码留空表示不修改） |
+| `/api/datasource/{id}/enable` | POST | 启用连接（互斥：自动停用其他连接，先验证后热切换） |
+| `/api/datasource/{id}/disable` | POST | 停用连接 |
+| `/api/datasource/{id}/test`、`/api/datasource/test` | POST | 测试已保存/未保存的连接 |
+| `/api/datasource/discover-drivers?jarPath=` | GET | 扫描外部驱动 jar 中声明的驱动类名（自定义类型） |
+| `/api/datasource/{id}/delete` | POST | 删除连接（已启用需先停用） |
+| `/api/datasource/status` | GET | 当前活动连接状态 |
+| `/api/ai/list`、`/api/ai/save` | GET/POST | AI 模型列表 / 新建·更新（Key 不回传，留空不修改） |
+| `/api/ai/{id}/enable`、`/disable`、`/delete`、`/test` | POST | AI 模型互斥启用 / 停用 / 删除 / 探测 |
+| `/api/ai/protocol-defaults` | GET | 协议默认 Base URL |
 
 ## 📁 项目结构
 
@@ -125,23 +154,30 @@ export AI_API_KEY=你的百炼API_Key
 sql-optimizer-tool/
 ├── docs/                                     # 功能截图
 ├── src/main/java/com/sqloptimizer/
-│   ├── SqlOptimizerApplication.java         # 启动类（排除默认数据源自动配置）
+│   ├── SqlOptimizerApplication.java         # 启动类（H2 平台库存放多数据源/AI 配置）
 │   ├── common/                              # Result / IndexSuggestion / OptimizeResult
-│   │                                        # ExplainResult / ExplainRow / PlanNode
-│   │                                        # DataSourceConfig / ScanItem
+│   │                                        # ExplainResult / ExplainRow / PlanNode / ScanItem
+│   ├── entity/                              # DatabaseConfig / AiProvider / AiProtocol（JPA 实体）
+│   ├── repository/                          # DatabaseConfigRepository / AiProviderRepository
+│   ├── util/CryptoUtil.java                 # 密码 / API Key 落库加密
 │   ├── config/                              # 全局异常处理
 │   ├── controller/
 │   │   ├── OptimizeController.java          # 优化 + 批量 + 状态
 │   │   ├── ExplainController.java           # 执行计划
 │   │   ├── ScanController.java              # 项目扫描 + 替换 + 目录浏览
-│   │   └── DataSourceController.java        # 数据源配置
+│   │   ├── DataSourceController.java        # 数据源多配置 CRUD / 互斥启用
+│   │   └── AiProviderController.java        # AI 模型多配置 CRUD / 互斥启用
 │   └── service/
 │       ├── IndexAnalyzerService.java        # 索引候选列提取（规则引擎核心）
 │       ├── SqlOptimizerService.java         # 优化编排：组合规则/数据源/AI
 │       ├── ProjectScanService.java          # 项目扫描与原地替换
-│       ├── DataSourceService.java           # 连接/索引检测/大小表/冗余索引
+│       ├── DatabaseConfigService.java       # 数据源配置 CRUD + 唯一启用标志（事务）
+│       ├── DataSourceService.java           # 活动池热切换/索引检测/大小表/冗余索引
+│       ├── AiProviderService.java           # AI 模型 CRUD + 唯一启用 + 探测记录
+│       ├── AiChatClient.java                # OpenAI 兼容 / Anthropic 两种协议的 HTTP 客户端
+│       ├── AiConnectionTestService.java     # AI 端点探测（max_tokens=1）
 │       ├── ExplainService.java              # EXPLAIN 执行、计划树解析与成本评估
-│       └── AiService.java                   # 百炼 AI 服务
+│       └── AiService.java                   # 基于启用模型的 SQL 深度优化
 └── src/main/resources/
     ├── application.yml
     └── static/
@@ -150,7 +186,8 @@ sql-optimizer-tool/
         ├── manual.html        # 手工优化
         ├── auto.html          # 扫描优化
         ├── explain.html       # SQL 执行计划
-        ├── datasource.html    # 配置数据源
+        ├── datasource.html    # 数据源多配置管理（互斥启用）
+        ├── ai.html            # AI 模型多配置管理（互斥启用）
         ├── donate.html        # 打赏支持
         └── image/
             └── ds.png         # 打赏二维码
@@ -158,7 +195,7 @@ sql-optimizer-tool/
 
 ## 📝 注意事项
 
-1. **数据源为内存态**：配置的连接仅保存在内存中，应用重启后需重新配置；密码不会回传前端。
+1. **多配置与互斥启用**：数据库连接与 AI 模型均可保存多个，各自同一时刻只能启用一个，互斥关系由服务端事务保证；配置保存在 `./data` 的 H2 文件库中，重启不丢。密码/API Key 加密存储、不回传前端，编辑时留空表示沿用原值；加密口令可用环境变量 `APP_CRYPTO_PASSWORD` / `APP_CRYPTO_SALT` 覆盖。启动时会自动尝试恢复上次启用的数据库连接，失败则在页面显示“启用中·连接失败”。
 2. **执行计划安全**：PostgreSQL 系使用 `EXPLAIN`（不含 ANALYZE），不会真实执行写操作。
 3. **执行计划视图**：MySQL 8 通过 `EXPLAIN FORMAT=JSON` 解析出结构化计划树（表格/树形/图形）；其他数据库回退为原始表格。
 4. **索引匹配规则**：检测已存在索引时采用"最左前缀匹配"，与数据库索引使用逻辑一致。

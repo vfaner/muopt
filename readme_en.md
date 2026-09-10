@@ -14,7 +14,7 @@ SQL Optimizer Tool is a Spring Boot 3 web application that performs intelligent 
 - 🎨 **Color-coded status**: Existing = gray, missing/unverified = orange — clear at a glance, copy-paste ready
 - ✏️ **Manual optimization**: Paste a single SQL for instant analysis
 - 🔍 **Scan optimization**: Scan a project directory to extract SQL from MyBatis XML, SQL strings in Java code, and SQL in annotations (`@Select`/`@Insert`/`@Update`/`@Delete`/`@Query`); analyze each and replace in place with a one click (auto `.bak` backup)
-- 🤖 **AI deep optimization** (optional): Integrates Alibaba Cloud Bailian (Tongyi Qianwen) to intelligently rewrite SQL
+- 🤖 **AI deep optimization** (optional): Configure multiple AI models (Bailian / DeepSeek / OpenAI / Anthropic and any OpenAI-compatible gateway), with one active at a time, to intelligently rewrite SQL
 - 🔗 **Data source configuration** (optional): Once configured, enables —
   - Index existence detection (gray/orange distinction)
   - Redundant index detection (with DROP suggestions)
@@ -50,9 +50,10 @@ SQL Optimizer Tool is a Spring Boot 3 web application that performs intelligent 
 
 | Component | Technology |
 |-----------|------------|
-| Backend | Spring Boot 3.2, JSqlParser 4.9, HikariCP, OkHttp 4.12 |
+| Backend | Spring Boot 3.2, JSqlParser 4.9, HikariCP, JDK HttpClient |
 | Frontend | Vue 3 CDN + Element Plus CDN (pure HTML, no build tool) |
-| AI API | Alibaba Cloud Bailian OpenAI-compatible interface (qwen-max) |
+| Config store | Embedded H2 file database (`./data`) + Spring Data JPA; passwords/API keys encrypted at rest with spring-security-crypto |
+| AI API | OpenAI-compatible protocol (Bailian / DeepSeek / OpenAI / intranet gateways) + Anthropic Messages protocol |
 | DB drivers | MySQL Connector/J, PostgreSQL JDBC, Oracle JDBC; DM (Dameng) added manually |
 | Build | Maven, JDK 17+ |
 
@@ -70,13 +71,26 @@ java -jar target/sql-optimizer-tool-1.0.0.jar
 
 Visit: http://localhost:8090
 
-### Configure AI (optional)
+The build produces a single executable fat jar (~61MB; MySQL / PostgreSQL / Oracle drivers and the frontend are bundled). Copy it to any intranet machine with **JDK 17+** and run it directly — no Maven or internet access required:
 
 ```bash
-export AI_API_KEY=your_bailian_api_key
+java -jar sql-optimizer-tool-1.0.0.jar
+# Optional overrides: port / bind address / config-store encryption secret
+java -jar sql-optimizer-tool-1.0.0.jar --server.port=8090 --server.address=0.0.0.0
 ```
 
-Index analysis works fine without an API key (only AI-based deep rewriting is unavailable).
+Deployment notes:
+
+- Database and AI configurations are stored in `./data` (embedded H2 file database) next to the working directory; logs go to `./logs/`. Persist/back up these directories.
+- By default the app binds `127.0.0.1` only; set `--server.address=0.0.0.0` (plus gateway-level auth) for LAN access.
+- For drivers not bundled (e.g. DM/Dameng), use the "custom" database type and point to the driver jar on the server machine.
+- AI calls go directly from the server to the configured Base URL — make sure that endpoint is reachable from the intranet host.
+
+### Configure AI (optional)
+
+On the "AI Models" page, add a configuration: pick the protocol (OpenAI-compatible / Anthropic), fill in the Base URL, model name and API key, optionally run "Test connectivity", then save and switch it on. Multiple models can be saved but only one is enabled at a time — enabling one automatically disables the others. The Base URL is free-form, so any OpenAI-compatible intranet gateway or self-hosted inference service works.
+
+Index analysis works fine without an enabled model (only AI-based deep rewriting is unavailable).
 
 ## 📊 Supported Databases (data source connection)
 
@@ -90,6 +104,7 @@ Index analysis works fine without an API key (only AI-based deep rewriting is un
 | KingBase | `kingbase` | PostgreSQL driver | 54321 |
 | OceanBase | `oceanbase` | MySQL driver | 2881 |
 | TiDB | `tidb` | MySQL driver | 4000 |
+| Custom | `custom` | Full JDBC URL + driver class name; for non-bundled drivers, supply a server-local jar path (file or directory, `;`-separated) and use "scan jar" to discover the driver class; passwordless databases and extra URL params are supported | — |
 
 ### Dameng (DM) Driver Notes
 
@@ -102,7 +117,7 @@ The Dameng JDBC driver is not published to Maven Central and must be added manua
      -DgroupId=com.dameng -DartifactId=DmJdbcDriver18 \
      -Dversion=8.1 -Dpackaging=jar
    ```
-3. Add the corresponding dependency in `pom.xml` and repackage, or append the jar with `-cp` at startup.
+3. Add the corresponding dependency in `pom.xml` and repackage — or skip repackaging entirely: choose the "custom" database type in the UI and point directly at this jar on the server (with "scan jar" auto-filling the driver class).
 
 ## 📡 API Endpoints
 
@@ -115,9 +130,13 @@ The Dameng JDBC driver is not published to Maven Central and must be added manua
 | `/api/scan` | POST | Scan a project directory and extract SQL |
 | `/api/scan/replace` | POST | Replace optimized SQL back into the source file (auto `.bak` backup) |
 | `/api/scan/dirs` | GET | Browse server directory tree (for the directory picker) |
-| `/api/datasource/connect` | POST | Test and connect a data source |
-| `/api/datasource/disconnect` | POST | Disconnect the data source |
-| `/api/datasource/status` | GET | Current data source status |
+| `/api/datasource/list`, `/save` | GET/POST | List connections (passwords never returned) / create·update |
+| `/api/datasource/{id}/enable`, `/disable` | POST | Exclusive enable (validates then hot-swaps the pool) / disable |
+| `/api/datasource/{id}/test`, `/api/datasource/test` | POST | Test a saved / unsaved connection |
+| `/api/datasource/discover-drivers?jarPath=` | GET | List driver classes declared in an external driver jar (custom type) |
+| `/api/datasource/{id}/delete`, `/status` | POST/GET | Delete (disable first) / active connection status |
+| `/api/ai/list`, `/save`, `/{id}/enable`, `/disable`, `/delete`, `/test` | — | AI provider CRUD with the same exclusive-enable rule |
+| `/api/ai/protocol-defaults` | GET | Protocol default Base URL |
 
 ## 📁 Project Structure
 
@@ -125,23 +144,30 @@ The Dameng JDBC driver is not published to Maven Central and must be added manua
 sql-optimizer-tool/
 ├── docs/                                     # Screenshots
 ├── src/main/java/com/sqloptimizer/
-│   ├── SqlOptimizerApplication.java         # Startup class (excludes default data source auto-config)
+│   ├── SqlOptimizerApplication.java         # Startup class (H2 stores data-source/AI config)
 │   ├── common/                              # Result / IndexSuggestion / OptimizeResult
-│   │                                        # ExplainResult / ExplainRow / PlanNode
-│   │                                        # DataSourceConfig / ScanItem
+│   │                                        # ExplainResult / ExplainRow / PlanNode / ScanItem
+│   ├── entity/                              # DatabaseConfig / AiProvider / AiProtocol (JPA)
+│   ├── repository/                          # Spring Data repositories (exclusive-enable updates)
+│   ├── util/CryptoUtil.java                 # Password / API key encryption at rest
 │   ├── config/                              # Global exception handling
 │   ├── controller/
 │   │   ├── OptimizeController.java          # Optimize + batch + status
 │   │   ├── ExplainController.java           # Execution plan
 │   │   ├── ScanController.java              # Project scan + replace + directory browsing
-│   │   └── DataSourceController.java        # Data source configuration
+│   │   ├── DataSourceController.java        # Data source CRUD / exclusive enable
+│   │   └── AiProviderController.java        # AI provider CRUD / exclusive enable
 │   └── service/
 │       ├── IndexAnalyzerService.java        # Index candidate extraction (rule engine core)
 │       ├── SqlOptimizerService.java         # Optimization orchestration: rules/data source/AI
 │       ├── ProjectScanService.java          # Project scanning & in-place replacement
-│       ├── DataSourceService.java           # Connection/index detection/table size/redundant indexes
+│       ├── DatabaseConfigService.java       # Data source CRUD + exclusive enabled flag (tx)
+│       ├── DataSourceService.java           # Active pool hot-swap/index checks/table size
+│       ├── AiProviderService.java           # AI provider CRUD + exclusive enable + probes
+│       ├── AiChatClient.java                # OpenAI-compatible / Anthropic HTTP client
+│       ├── AiConnectionTestService.java     # AI endpoint probe (max_tokens=1)
 │       ├── ExplainService.java              # EXPLAIN execution, plan-tree parsing & cost evaluation
-│       └── AiService.java                   # Bailian AI service
+│       └── AiService.java                   # SQL deep optimization via the enabled model
 └── src/main/resources/
     ├── application.yml
     └── static/
@@ -150,7 +176,8 @@ sql-optimizer-tool/
         ├── manual.html        # Manual optimization
         ├── auto.html          # Scan optimization
         ├── explain.html       # SQL execution plan
-        ├── datasource.html    # Data source configuration
+        ├── datasource.html    # Data source management (multiple, exclusive enable)
+        ├── ai.html            # AI model management (multiple, exclusive enable)
         ├── donate.html        # Donation support
         └── image/
             └── ds.png         # Donation QR code
@@ -158,7 +185,7 @@ sql-optimizer-tool/
 
 ## 📝 Notes
 
-1. **In-memory data source**: The configured connection is kept in memory only and must be reconfigured after a restart; passwords are never returned to the frontend.
+1. **Multiple configs with exclusive enable**: Any number of database connections and AI models can be saved, but at most one of each kind is enabled at a time; exclusivity is enforced inside a server-side transaction (not just in the browser). Configs persist in the embedded H2 file database under `./data` and survive restarts. Passwords/API keys are encrypted at rest and never returned to the frontend; leaving the field blank on edit keeps the stored value. Override the encryption secret via `APP_CRYPTO_PASSWORD` / `APP_CRYPTO_SALT`. On startup the app best-effort reconnects to the previously enabled database; a failed reconnect shows an "enabled but offline" state in the UI.
 2. **Execution-plan safety**: For PostgreSQL-family databases, `EXPLAIN` (without ANALYZE) is used, so no write operations are actually executed.
 3. **Execution-plan views**: MySQL 8 uses `EXPLAIN FORMAT=JSON` to parse a structured plan tree (table/tree/diagram); other databases fall back to the raw table.
 4. **Index matching rule**: Existing-index detection uses "leftmost-prefix matching", consistent with how databases use indexes.
