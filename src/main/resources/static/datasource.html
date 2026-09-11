@@ -99,7 +99,7 @@
                         Oracle：<strong>1521</strong> ·
                         PostgreSQL：<strong>5432</strong> ·
                         达梦 DM：<strong>5236</strong><br>
-                        高斯/openGauss：<strong>5432</strong> ·
+                        GaussDB/openGauss：<strong>5432</strong> ·
                         KingBase：<strong>54321</strong> ·
                         OceanBase：<strong>2881</strong> ·
                         TiDB：<strong>4000</strong>
@@ -117,9 +117,10 @@
                                 <el-option label="MySQL" value="mysql"></el-option>
                                 <el-option label="Oracle" value="oracle"></el-option>
                                 <el-option label="PostgreSQL" value="postgresql"></el-option>
-                                <el-option label="达梦数据库 (DM)" value="dameng"></el-option>
-                                <el-option label="高斯数据库 (GaussDB / openGauss)" value="gaussdb"></el-option>
-                                <el-option label="人大金仓 (KingBase)" value="kingbase"></el-option>
+                                <el-option label="达梦数据库 (DM8，驱动已内置)" value="dameng"></el-option>
+                                <el-option label="高斯数据库 GaussDB（PostgreSQL 协议）" value="gaussdb"></el-option>
+                                <el-option label="openGauss（原厂驱动已内置）" value="opengauss"></el-option>
+                                <el-option label="人大金仓 KingBaseES V8（原厂驱动已内置）" value="kingbase"></el-option>
                                 <el-option label="OceanBase" value="oceanbase"></el-option>
                                 <el-option label="TiDB" value="tidb"></el-option>
                                 <el-option label="自定义（完整 JDBC URL / 外部驱动 jar）" value="custom"></el-option>
@@ -128,8 +129,8 @@
 
                         <!-- 预设类型：主机/端口/库名 -->
                         <template v-if="form.dbType !== 'custom'">
-                            <div v-if="form.dbType === 'dameng'" style="font-size:12px;color:#d48806;margin:-6px 0 10px 110px;">
-                                ⚠️ 达梦驱动未内置：可改用下方「自定义」类型，指定 DmJdbcDriver 的 jar 路径
+                            <div v-if="form.dbType === 'dameng'" style="font-size:12px;color:#999;margin:-6px 0 10px 110px;">
+                                💡 已内置 DmJdbcDriver18 8.1.3；「数据库名」填模式（Schema）名，也可留空
                             </div>
                             <div v-if="form.dbType === 'oracle'" style="font-size:12px;color:#666;margin:-6px 0 10px 110px;">
                                 💡 Oracle 的「数据库名 / Schema」请填写服务名（Service Name），连接串格式：jdbc:oracle:thin:@//host:port/service
@@ -192,7 +193,7 @@
         createApp({
             setup() {
                 const defaultPorts = {
-                    dameng: 5236, gaussdb: 5432, kingbase: 54321,
+                    dameng: 5236, gaussdb: 5432, opengauss: 5432, kingbase: 54321,
                     oceanbase: 2881, tidb: 4000, mysql: 3306, postgresql: 5432, oracle: 1521
                 };
                 const list = ref([]);

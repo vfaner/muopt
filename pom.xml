@@ -108,6 +108,27 @@
             <version>23.3.0.23.09</version>
         </dependency>
 
+        <!-- 达梦 DM8 原厂 JDBC 驱动（JDBC 4.x，JDK 8+，可在 JDK 17 运行） -->
+        <dependency>
+            <groupId>com.dameng</groupId>
+            <artifactId>DmJdbcDriver18</artifactId>
+            <version>8.1.3.140</version>
+        </dependency>
+
+        <!-- openGauss 原厂 JDBC 驱动（GaussDB 仍走 PostgreSQL 协议驱动） -->
+        <dependency>
+            <groupId>org.opengauss</groupId>
+            <artifactId>opengauss-jdbc</artifactId>
+            <version>5.0.3-og</version>
+        </dependency>
+
+        <!-- 人大金仓 KingbaseES V8 原厂 JDBC 驱动 -->
+        <dependency>
+            <groupId>cn.com.kingbase</groupId>
+            <artifactId>kingbase8</artifactId>
+            <version>9.0.1</version>
+        </dependency>
+
         <!-- Spring Boot Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

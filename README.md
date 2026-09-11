@@ -60,7 +60,7 @@ SQL 优化工具是一个基于 Spring Boot 3 的 Web 应用，针对给定的�
 | 前端 | Vue 3 CDN + Element Plus CDN（纯 HTML，无构建工具） |
 | 配置存储 | H2 文件库（`./data`）+ Spring Data JPA；密码/API Key 使用 spring-security-crypto 加密落库 |
 | AI 接口 | OpenAI 兼容协议（百炼 / DeepSeek / OpenAI / 内网网关）+ Anthropic Messages 协议 |
-| 数据库驱动 | MySQL Connector/J、PostgreSQL JDBC、Oracle JDBC；达梦需手动加入 |
+| 数据库驱动 | MySQL、PostgreSQL、Oracle、达梦 DM8、openGauss、人大金仓 KingBaseES（信创原厂驱动均已内置） |
 | 构建 | Maven, JDK 17+ |
 
 ## 🚀 快速开始
@@ -77,7 +77,7 @@ java -jar target/sql-optimizer-tool-1.0.0.jar
 
 访问：http://localhost:8090
 
-打包产物为单个可执行 fat jar（约 61MB，内置 MySQL / PostgreSQL / Oracle 驱动与前端页面），拷到装有 **JDK 17+** 的内网机器即可直接运行，无需 Maven、无需联网：
+打包产物为单个可执行 fat jar（约 64MB，内置 MySQL / PostgreSQL / Oracle / 达梦 / openGauss / 人大金仓驱动与前端页面），拷到装有 **JDK 17+** 的内网机器即可直接运行，无需 Maven、无需联网：
 
 ```bash
 java -jar sql-optimizer-tool-1.0.0.jar
@@ -89,7 +89,7 @@ java -jar sql-optimizer-tool-1.0.0.jar --server.port=8090 --server.address=0.0.0
 
 - 数据库与 AI 配置保存在运行目录下的 `./data`（H2 文件库），日志在 `./logs/`，部署时注意这两个目录的持久化与备份；**不要删除 `./data`，否则所有配置丢失**。固定从同一工作目录启动；也可用环境变量 `APP_DATA_DIR` 把配置库指到绝对路径（如 `APP_DATA_DIR=/var/sql-optimizer/data`），启动日志会打印配置库的实际位置；
 - 默认只监听 `127.0.0.1`，局域网访问需加 `--server.address=0.0.0.0` 并自行在网关加鉴权；
-- 达梦等未内置驱动的数据库，使用「自定义」类型并把驱动 jar 放到运行机器上指定路径即可；
+- 达梦 / openGauss / 人大金仓驱动已内置；其他未内置驱动的数据库使用「自定义」类型，把驱动 jar 放到运行机器上指定路径即可；
 - AI 调用从运行机器直接访问所配置的 Base URL，请确保内网到该地址的网络可达。
 
 ### 配置 AI（可选）
@@ -105,25 +105,26 @@ java -jar sql-optimizer-tool-1.0.0.jar --server.port=8090 --server.address=0.0.0
 | MySQL | `mysql` | MySQL 驱动 | 3306 |
 | Oracle | `oracle` | Oracle 驱动 | 1521 |
 | PostgreSQL | `postgresql` | PostgreSQL 驱动 | 5432 |
-| 达梦 DM | `dameng` | 需手动加入（见下） | 5236 |
-| 高斯/openGauss | `gaussdb` | PostgreSQL 驱动 | 5432 |
-| 人大金仓 KingBase | `kingbase` | PostgreSQL 驱动 | 54321 |
+| 达梦 DM8 | `dameng` | **DmJdbcDriver18（内置）** | 5236 |
+| GaussDB | `gaussdb` | PostgreSQL 驱动（走 PG 协议） | 5432 |
+| openGauss | `opengauss` | **opengauss-jdbc（内置）** | 5432 |
+| 人大金仓 KingBaseES V8 | `kingbase` | **kingbase8（内置）** | 54321 |
 | OceanBase | `oceanbase` | MySQL 驱动 | 2881 |
 | TiDB | `tidb` | MySQL 驱动 | 4000 |
 | 自定义 | `custom` | 填写完整 JDBC URL + 驱动类名；驱动不在内置列表时可指定服务器本地 jar 路径（文件或目录，多个用 `;` 分隔），支持「扫描 jar」自动读取驱动类名；支持免密库与附加 URL 参数 | — |
 
-### 达梦（DM）驱动说明
+### 信创数据库驱动说明
 
-达梦 JDBC 驱动未发布到 Maven 中央仓，需手动引入：
+达梦 DM8（`com.dameng:DmJdbcDriver18:8.1.3.140`）、openGauss（`org.opengauss:opengauss-jdbc:5.0.3-og`）、
+人大金仓 KingBaseES V8（`cn.com.kingbase:kingbase8:9.0.1`）的原厂驱动均已打进 fat jar，开箱即用：
 
-1. 从达梦安装目录获取 `DmJdbcDriver18.jar`
-2. 安装到本地 Maven 仓库：
-   ```bash
-   mvn install:install-file -Dfile=DmJdbcDriver18.jar \
-     -DgroupId=com.dameng -DartifactId=DmJdbcDriver18 \
-     -Dversion=8.1 -Dpackaging=jar
-   ```
-3. 在 `pom.xml` 中加入对应依赖后重新打包；也可以不重新打包——页面上选择「自定义」类型，直接指定服务器上该 jar 的路径（配合「扫描 jar」自动填充驱动类名）即可。
+- **达梦**：驱动类 `dm.jdbc.driver.DmDriver`，URL `jdbc:dm://host:5236`，「数据库名」填模式（Schema）名
+- **openGauss**：驱动类 `org.opengauss.Driver`，URL `jdbc:opengauss://host:5432/库名`
+- **人大金仓**：驱动类 `com.kingbase8.Driver`，URL `jdbc:kingbase8://host:54321/库名`
+- **GaussDB**：走 PostgreSQL 协议，使用内置 PostgreSQL 驱动 `jdbc:postgresql://host:5432/库名`
+
+如果你的数据库版本较旧/较新、与内置驱动不兼容，无需重新打包——页面上选择「自定义」类型，
+指定服务器上对应版本驱动 jar 的路径（配合「扫描 jar」自动填充驱动类名）与完整 JDBC URL 即可。
 
 ## 📡 API 接口
 

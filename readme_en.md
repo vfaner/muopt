@@ -54,7 +54,7 @@ SQL Optimizer Tool is a Spring Boot 3 web application that performs intelligent 
 | Frontend | Vue 3 CDN + Element Plus CDN (pure HTML, no build tool) |
 | Config store | Embedded H2 file database (`./data`) + Spring Data JPA; passwords/API keys encrypted at rest with spring-security-crypto |
 | AI API | OpenAI-compatible protocol (Bailian / DeepSeek / OpenAI / intranet gateways) + Anthropic Messages protocol |
-| DB drivers | MySQL Connector/J, PostgreSQL JDBC, Oracle JDBC; DM (Dameng) added manually |
+| DB drivers | MySQL, PostgreSQL, Oracle, Dameng DM8, openGauss, KingBaseES V8 (all domestic drivers bundled) |
 | Build | Maven, JDK 17+ |
 
 ## 🚀 Quick Start
@@ -71,7 +71,7 @@ java -jar target/sql-optimizer-tool-1.0.0.jar
 
 Visit: http://localhost:8090
 
-The build produces a single executable fat jar (~61MB; MySQL / PostgreSQL / Oracle drivers and the frontend are bundled). Copy it to any intranet machine with **JDK 17+** and run it directly — no Maven or internet access required:
+The build produces a single executable fat jar (~64MB; MySQL / PostgreSQL / Oracle / Dameng / openGauss / KingBase drivers and the frontend are bundled). Copy it to any intranet machine with **JDK 17+** and run it directly — no Maven or internet access required:
 
 ```bash
 java -jar sql-optimizer-tool-1.0.0.jar
@@ -83,7 +83,7 @@ Deployment notes:
 
 - Database and AI configurations are stored in `./data` (embedded H2 file database) next to the working directory; logs go to `./logs/`. Persist/back up these directories, and **never delete `./data`** or all configurations are lost. Always launch from the same working directory, or pin the store to an absolute path via `APP_DATA_DIR` (e.g. `APP_DATA_DIR=/var/sql-optimizer/data`); the startup log prints the resolved store location.
 - By default the app binds `127.0.0.1` only; set `--server.address=0.0.0.0` (plus gateway-level auth) for LAN access.
-- For drivers not bundled (e.g. DM/Dameng), use the "custom" database type and point to the driver jar on the server machine.
+- Dameng / openGauss / KingBase drivers are bundled; for any other unbundled driver use the "custom" database type and point to the driver jar on the server machine.
 - AI calls go directly from the server to the configured Base URL — make sure that endpoint is reachable from the intranet host.
 
 ### Configure AI (optional)
@@ -99,25 +99,28 @@ Index analysis works fine without an enabled model (only AI-based deep rewriting
 | MySQL | `mysql` | MySQL driver | 3306 |
 | Oracle | `oracle` | Oracle driver | 1521 |
 | PostgreSQL | `postgresql` | PostgreSQL driver | 5432 |
-| Dameng DM | `dameng` | Add manually (see below) | 5236 |
-| GaussDB/openGauss | `gaussdb` | PostgreSQL driver | 5432 |
-| KingBase | `kingbase` | PostgreSQL driver | 54321 |
+| Dameng DM8 | `dameng` | **DmJdbcDriver18 (bundled)** | 5236 |
+| GaussDB | `gaussdb` | PostgreSQL driver (PG wire protocol) | 5432 |
+| openGauss | `opengauss` | **opengauss-jdbc (bundled)** | 5432 |
+| KingBaseES V8 | `kingbase` | **kingbase8 (bundled)** | 54321 |
 | OceanBase | `oceanbase` | MySQL driver | 2881 |
 | TiDB | `tidb` | MySQL driver | 4000 |
 | Custom | `custom` | Full JDBC URL + driver class name; for non-bundled drivers, supply a server-local jar path (file or directory, `;`-separated) and use "scan jar" to discover the driver class; passwordless databases and extra URL params are supported | — |
 
-### Dameng (DM) Driver Notes
+### Domestic Database Drivers
 
-The Dameng JDBC driver is not published to Maven Central and must be added manually:
+The official drivers for Dameng DM8 (`com.dameng:DmJdbcDriver18:8.1.3.140`), openGauss
+(`org.opengauss:opengauss-jdbc:5.0.3-og`) and KingBaseES V8 (`cn.com.kingbase:kingbase8:9.0.1`)
+are bundled in the fat jar and work out of the box:
 
-1. Obtain `DmJdbcDriver18.jar` from the Dameng installation directory
-2. Install it into the local Maven repository:
-   ```bash
-   mvn install:install-file -Dfile=DmJdbcDriver18.jar \
-     -DgroupId=com.dameng -DartifactId=DmJdbcDriver18 \
-     -Dversion=8.1 -Dpackaging=jar
-   ```
-3. Add the corresponding dependency in `pom.xml` and repackage — or skip repackaging entirely: choose the "custom" database type in the UI and point directly at this jar on the server (with "scan jar" auto-filling the driver class).
+- **Dameng**: driver `dm.jdbc.driver.DmDriver`, URL `jdbc:dm://host:5236`; "database name" is the schema name
+- **openGauss**: driver `org.opengauss.Driver`, URL `jdbc:opengauss://host:5432/db`
+- **KingBase**: driver `com.kingbase8.Driver`, URL `jdbc:kingbase8://host:54321/db`
+- **GaussDB**: uses the bundled PostgreSQL driver over the PG wire protocol, `jdbc:postgresql://host:5432/db`
+
+If your database version needs a different driver build, no repackaging is required: choose the
+"custom" database type, point to that driver jar on the server ("scan jar" auto-fills the driver class)
+and enter the full JDBC URL.
 
 ## 📡 API Endpoints
 

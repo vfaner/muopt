@@ -484,7 +484,10 @@ public class DataSourceService {
         }
         return switch (dbType.toLowerCase()) {
             case "mysql", "oceanbase", "tidb" -> "com.mysql.cj.jdbc.Driver";
-            case "postgresql", "gaussdb", "opengauss", "kingbase" -> "org.postgresql.Driver";
+            // GaussDB 走 PostgreSQL 协议；openGauss / 人大金仓使用各自原厂驱动
+            case "postgresql", "gaussdb" -> "org.postgresql.Driver";
+            case "opengauss" -> "org.opengauss.Driver";
+            case "kingbase" -> "com.kingbase8.Driver";
             case "oracle" -> "oracle.jdbc.OracleDriver";
             case "dameng", "dm" -> "dm.jdbc.driver.DmDriver";
             default -> throw new IllegalArgumentException("不支持的数据库类型: " + dbType);
@@ -498,8 +501,13 @@ public class DataSourceService {
             case "mysql", "oceanbase", "tidb" ->
                     "jdbc:mysql://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName()
                             + "?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true";
-            case "postgresql", "gaussdb", "opengauss", "kingbase" ->
+            // GaussDB 走 PostgreSQL 协议；openGauss / 人大金仓用原厂 JDBC URL 前缀
+            case "postgresql", "gaussdb" ->
                     "jdbc:postgresql://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+            case "opengauss" ->
+                    "jdbc:opengauss://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+            case "kingbase" ->
+                    "jdbc:kingbase8://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
             case "oracle" ->
                     "jdbc:oracle:thin:@//" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
             case "dameng", "dm" ->

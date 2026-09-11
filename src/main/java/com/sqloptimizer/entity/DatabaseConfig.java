@@ -35,9 +35,9 @@ public class DatabaseConfig {
     /**
      * 数据库类型：
      * mysql / oceanbase / tidb（MySQL 驱动）
-     * postgresql / gaussdb / opengauss / kingbase（PostgreSQL 驱动）
+     * postgresql / gaussdb（PostgreSQL 驱动）、opengauss（原厂驱动）、kingbase（原厂驱动）
      * oracle（Oracle 驱动）
-     * dameng（动态加载的达梦驱动）
+     * dameng（内置达梦 DmJdbcDriver18）
      */
     @Column(name = "db_type", nullable = false, length = 32)
     private String dbType;
