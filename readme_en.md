@@ -2,6 +2,12 @@
 
 [中文](README.md) | **English**
 
+> 🎬 **Demo video (Bilibili, Chinese narration)**: [开源SQL优化神器：一键扫描项目代码，智能补全索引，还支持可视化执行计划！](https://www.bilibili.com/video/BV1vVYm6yEhf)
+>
+> <a href="https://www.bilibili.com/video/BV1vVYm6yEhf"><img src="docs/demo-video-cover.jpg" alt="SQL Optimizer Tool demo video" width="760"></a>
+>
+> Click the cover to watch on Bilibili (~9 min).
+
 ## 📖 Introduction
 
 SQL Optimizer Tool is a Spring Boot 3 web application that performs intelligent optimization analysis on a given query SQL, produces appropriate index suggestions, and supports connecting to a real data source for deep optimization and execution-plan analysis.
@@ -267,4 +273,4 @@ If you find it useful, please give the project a **[Star](https://github.com/vfa
 
 ## 📄 License
 
-Free for personal / non-commercial use.
+This project is licensed under the [MIT License](LICENSE).

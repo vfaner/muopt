@@ -2,6 +2,12 @@
 
 **中文** | [English](readme_en.md)
 
+> 🎬 **项目演示视频（Bilibili）**：[开源SQL优化神器：一键扫描项目代码，智能补全索引，还支持可视化执行计划！](https://www.bilibili.com/video/BV1vVYm6yEhf)
+>
+> <a href="https://www.bilibili.com/video/BV1vVYm6yEhf"><img src="docs/demo-video-cover.jpg" alt="SQL 优化工具演示视频" width="760"></a>
+>
+> 点击封面即可在 B 站观看（时长约 9 分钟）。
+
 ## 📖 项目简介
 
 SQL 优化工具是一个基于 Spring Boot 3 的 Web 应用，针对给定的查询 SQL 进行智能优化分析，给出合适的索引建议，并支持连接真实数据源做深度优化与执行计划分析。
@@ -267,4 +273,4 @@ sql-optimizer-tool/
 
 ## 📄 许可证
 
-个人 / 非商业使用免费。
+本项目基于 [MIT License](LICENSE) 开源。
