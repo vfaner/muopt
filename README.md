@@ -35,22 +35,60 @@ SQL 优化工具是一个基于 Spring Boot 3 的 Web 应用，针对给定的�
 ## 🖼️ 功能截图
 
 ### ✏️ 手工优化
-![手工优化](docs/sql_yh_sd.png)
+
+粘贴单条 SQL 即时分析：未开启 AI 时给出索引建议与优化提示（不改动 SQL）；开启 AI 后智能改写，AI 超时/失败会自动降级为本地规则改写。
+
+**本地规则分析（未开 AI）：** 索引建议区分「建议创建 / 已存在」，连接数据源后为深度检测
+
+<img src="docs/sql_yh_ai_sd.png" width="1180" alt="手工优化-本地分析">
+
+**开启 AI 深度优化：**
+
+<img src="docs/sql_yh_ai_sd_ai.png" width="1180" alt="手工优化-开启AI">
+
+**深度分析详情：** 各表实际行数、小表驱动大表建议、冗余/已有索引判定；AI 超时时明确提示原因（本例为响应超时 60s，引导检查火山方舟 Base URL 与接入点 ID）
+
+<img src="docs/sql_yh_ai_sd_ai_tishi.png" width="1180" alt="手工优化-深度分析与超时提示">
 
 ### 🔍 扫描优化
-![扫描优化](docs/sql_yh_zd.png)
+
+选择项目目录后扫描 MyBatis XML、Java 代码、`.sql` 脚本中的 SQL，逐条给出优化建议并可一键原地替换（自动 `.bak` 备份）。扫描是服务端后台任务，可以放心切到其他页面，回来自动展示结果。
+
+**后台扫描进行中（8 路并发 AI 改写，可随时取消/切页）：**
+
+<img src="docs/sql_yh_ai_zd.png" width="1180" alt="扫描优化-后台进行中">
+
+**逐条结果：源 SQL / 优化后 SQL（AI 或规则标签）/ 索引建议：**
+
+<img src="docs/sql_yh_ai_zd1.png" width="1180" alt="扫描优化-结果详情">
 
 ### 🔗 配置数据源
 
-可保存多个数据库连接，通过开关互斥启用（启用新的会自动停用旧的），配置持久化保存、重启不丢。
-![配置数据源](docs/sql_yh_sjy.png)
+可保存多个数据库连接，通过开关互斥启用（启用新的自动停用旧的），密码加密存储、配置持久化重启不丢；内置达梦 / openGauss / 人大金仓等信创驱动，并支持自定义 JDBC URL。
+
+<img src="docs/sql_yh_db.png" width="1180" alt="数据源列表">
+
+<img src="docs/sql_yh_db_add.png" width="1100" alt="新增数据源">
 
 ### 🤖 AI 模型
 
-可保存多个 AI 模型配置（协议 / Base URL / 模型 / API Key），同一时刻只能启用一个；支持连接测试与最近探测状态展示。
+可保存多个 AI 模型配置（OpenAI 兼容 / Anthropic 协议、Base URL、模型、API Key），同一时刻只能启用一个；支持「测试连通性」与最近探测状态展示，编辑时 Key 留空表示不修改。
+
+<img src="docs/sql_yh_ai.png" width="1180" alt="AI模型列表">
+
+<img src="docs/sql_yh_ai_add.png" width="1000" alt="新增AI模型">
 
 ### 📊 SQL 执行计划
-![SQL执行计划](docs/sql_yh_zx.png)
+
+连接数据源后执行 EXPLAIN，提供表格 / 树形 / 图形三种视图（类 DBeaver），按操作类型着色（全表扫描红、索引查找绿、JOIN 紫），并给出成本评估。
+
+**表格视图：**
+
+<img src="docs/sql_yh_ai_exp.png" width="1180" alt="执行计划-表格">
+
+**树形视图：**
+
+<img src="docs/sql_yh_ai_exp_shuxing.png" width="1180" alt="执行计划-树形">
 
 ## 🛠️ 技术栈
 

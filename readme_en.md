@@ -34,17 +34,63 @@ SQL Optimizer Tool is a Spring Boot 3 web application that performs intelligent 
 
 ## 🖼️ Screenshots
 
+> The UI is in Chinese; captions below describe each screen.
+
 ### ✏️ Manual Optimization
-![Manual Optimization](docs/sql_yh_sd.png)
+
+Paste a single query for instant analysis. With AI off you get index suggestions and tips (the SQL itself is untouched); with AI on the query is rewritten by the model, and an AI timeout/failure automatically falls back to local rule-based rewrites.
+
+**Local rule analysis (AI off) — suggestions tagged "create" vs "already exists" when a data source is connected:**
+
+<img src="docs/sql_yh_ai_sd.png" width="1180" alt="Manual optimization - local analysis">
+
+**AI deep optimization enabled:**
+
+<img src="docs/sql_yh_ai_sd_ai.png" width="1180" alt="Manual optimization - AI enabled">
+
+**Deep analysis details:** actual row counts per table, small-table-driving-large-table hints, existing-index checks; when AI times out the reason is stated explicitly (here: 60s response timeout, with Volcengine Ark Base URL / endpoint-ID guidance):
+
+<img src="docs/sql_yh_ai_sd_ai_tishi.png" width="1180" alt="Manual optimization - deep analysis and timeout hint">
 
 ### 🔍 Scan Optimization
-![Scan Optimization](docs/sql_yh_zd.png)
+
+Point the tool at a project directory to extract SQL from MyBatis XML, Java code and `.sql` scripts; every statement gets suggestions and can be replaced in place (with automatic `.bak` backups). Scans run as server-side background jobs — feel free to switch pages; the result renders automatically on return.
+
+**Scan running in the background (8 concurrent AI rewrites; cancellable):**
+
+<img src="docs/sql_yh_ai_zd.png" width="1180" alt="Scan optimization - running in background">
+
+**Per-statement result: source SQL / rewritten SQL (AI or rule tag) / index suggestions:**
+
+<img src="docs/sql_yh_ai_zd1.png" width="1180" alt="Scan optimization - result detail">
 
 ### 🔗 Data Source Configuration
-![Data Source Configuration](docs/sql_yh_sjy.png)
+
+Save multiple database connections and exclusively enable one via a toggle (enabling a new one disables the old). Passwords are encrypted at rest and configs survive restarts; DM / openGauss / KingBase drivers are bundled, and custom JDBC URLs are supported.
+
+<img src="docs/sql_yh_db.png" width="1180" alt="Data source list">
+
+<img src="docs/sql_yh_db_add.png" width="1100" alt="Add data source">
+
+### 🤖 AI Models
+
+Save multiple AI model configs (OpenAI-compatible / Anthropic protocol, Base URL, model, API key); only one can be enabled at a time. "Test connectivity" probes the endpoint and the latest probe status is shown; leaving the key blank on edit keeps the stored value.
+
+<img src="docs/sql_yh_ai.png" width="1180" alt="AI model list">
+
+<img src="docs/sql_yh_ai_add.png" width="1000" alt="Add AI model">
 
 ### 📊 SQL Execution Plan
-![SQL Execution Plan](docs/sql_yh_zx.png)
+
+Runs EXPLAIN against the connected data source with table / tree / diagram views (DBeaver-style), color-coded by operation type (full table scan in red, index lookup in green, JOIN in purple) plus a cost summary.
+
+**Table view:**
+
+<img src="docs/sql_yh_ai_exp.png" width="1180" alt="Execution plan - table view">
+
+**Tree view:**
+
+<img src="docs/sql_yh_ai_exp_shuxing.png" width="1180" alt="Execution plan - tree view">
 
 ## 🛠️ Tech Stack
 
