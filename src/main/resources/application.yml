@@ -35,9 +35,11 @@ app:
     password: ${APP_CRYPTO_PASSWORD:sql-optimizer-default-key-change-me}
     salt: ${APP_CRYPTO_SALT:7d2f91a4c6b80e3f}
   ai:
-    # 扫描优化时 AI 改写的并发度与总等待时限（秒）；超时未返回的条目保留本地规则分析
-    scan-concurrency: ${APP_AI_SCAN_CONCURRENCY:4}
-    scan-timeout-seconds: ${APP_AI_SCAN_TIMEOUT:90}
+    # 扫描优化时 AI 改写的并发度、总等待时限、单请求超时上限（秒）；
+    # 到总时限未完成的条目保留本地规则分析。扫描为服务端后台任务，可随时调大时限。
+    scan-concurrency: ${APP_AI_SCAN_CONCURRENCY:8}
+    scan-timeout-seconds: ${APP_AI_SCAN_TIMEOUT:120}
+    scan-per-request-timeout-seconds: ${APP_AI_SCAN_PER_REQUEST_TIMEOUT:45}
 
 logging:
   level:

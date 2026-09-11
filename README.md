@@ -134,7 +134,10 @@ java -jar sql-optimizer-tool-1.0.0.jar --server.port=8090 --server.address=0.0.0
 | `/api/optimize/batch` | POST | 批量优化多条 SQL（分号分隔） |
 | `/api/status` | GET | 全局状态（是否已配数据源 / AI） |
 | `/api/explain` | POST | 执行计划分析（需数据源） |
-| `/api/scan` | POST | 扫描项目目录并提取 SQL |
+| `/api/scan/start` | POST | 提交异步扫描任务，返回 jobId（页面使用） |
+| `/api/scan/jobs/{jobId}` | GET | 查询扫描任务状态（RUNNING/SUCCESS/FAILED/CANCELLED，成功时携带结果） |
+| `/api/scan/jobs/{jobId}/cancel` | POST | 取消扫描任务 |
+| `/api/scan` | POST | 同步扫描项目目录并提取 SQL（保留兼容） |
 | `/api/scan/replace` | POST | 将优化后的 SQL 替换回源文件（自动 `.bak` 备份） |
 | `/api/scan/dirs` | GET | 浏览服务器目录树（供目录选择器使用） |
 | `/api/datasource/list` | GET | 全部数据库连接（密码不回传） |
@@ -197,7 +200,8 @@ sql-optimizer-tool/
 ## 📝 注意事项
 
 1. **多配置与互斥启用**：数据库连接与 AI 模型均可保存多个，各自同一时刻只能启用一个，互斥关系由服务端事务保证；配置保存在 `./data` 的 H2 文件库中，重启不丢。密码/API Key 加密存储、不回传前端，编辑时留空表示沿用原值；加密口令可用环境变量 `APP_CRYPTO_PASSWORD` / `APP_CRYPTO_SALT` 覆盖。启动时会自动尝试恢复上次启用的数据库连接，失败则在页面显示“启用中·连接失败”。
-   - **扫描优化的 AI 执行策略**：所有 SQL 先完成毫秒级本地规则分析，AI 改写再**并发**执行（默认并发 4、单次最多 20 条、总时限 90 秒）；到点未返回的条目保留本地分析并附超时提示，页面不会无限等待。可用 `APP_AI_SCAN_CONCURRENCY` / `APP_AI_SCAN_TIMEOUT` 调整。
+   - **扫描是服务端后台任务**：点击扫描后立即返回任务 ID，任务在服务端线程执行、与浏览器连接无关——扫描中切换菜单、整页跳转甚至刷新页面，回来后凭暂存在 sessionStorage 的任务 ID 自动恢复「扫描中」状态并继续轮询，完成后自动展示结果；也可随时取消。任务结果在服务端保留 30 分钟（服务重启后任务丢失，页面会提示重新扫描）。
+   - **扫描优化的 AI 执行策略**：所有 SQL 先完成毫秒级本地规则分析，AI 改写再**并发**执行（默认并发 8、单次最多 20 条、总时限 120 秒、单请求 45 秒上限）；挂死的单请求 45 秒释放名额给后续 SQL，到总时限未完成的条目保留本地分析并附超时提示。可用 `APP_AI_SCAN_CONCURRENCY` / `APP_AI_SCAN_TIMEOUT` / `APP_AI_SCAN_PER_REQUEST_TIMEOUT` 调整。
 2. **执行计划安全**：PostgreSQL 系使用 `EXPLAIN`（不含 ANALYZE），不会真实执行写操作。
 3. **执行计划视图**：MySQL 8 通过 `EXPLAIN FORMAT=JSON` 解析出结构化计划树（表格/树形/图形）；其他数据库回退为原始表格。
 4. **索引匹配规则**：检测已存在索引时采用"最左前缀匹配"，与数据库索引使用逻辑一致。

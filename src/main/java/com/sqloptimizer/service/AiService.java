@@ -37,9 +37,19 @@ public class AiService {
     }
 
     /**
-     * AI 深度优化 SQL，返回优化后的 SQL 文本
+     * AI 深度优化 SQL，返回优化后的 SQL 文本（使用模型自身配置的超时）
      */
     public String optimizeSql(String sql) {
+        return optimizeSql(sql, 0);
+    }
+
+    /**
+     * AI 深度优化 SQL。
+     *
+     * @param perRequestTimeoutSeconds 单请求超时上限（秒），用于批量扫描时限流；
+     *                                 &lt;=0 表示使用模型自身的超时配置
+     */
+    public String optimizeSql(String sql, int perRequestTimeoutSeconds) {
         AiProvider provider = providerService.activeProvider()
                 .orElseThrow(() -> new IllegalStateException("未启用任何 AI 模型，请先在「AI 模型」页配置并启用"));
         String apiKey = providerService.decryptKey(provider);
@@ -59,7 +69,8 @@ public class AiService {
 
         int maxTokens = provider.getMaxTokens() == null || provider.getMaxTokens() <= 0
                 ? 4096 : provider.getMaxTokens();
-        AiChatClient.ChatResult result = chatClient.complete(provider, apiKey, null, prompt, maxTokens);
+        AiChatClient.ChatResult result = chatClient.complete(provider, apiKey, null, prompt,
+                maxTokens, perRequestTimeoutSeconds > 0 ? (long) perRequestTimeoutSeconds : null);
         if (!result.isSuccess()) {
             // 外部服务超时/鉴权等属于可预期失败（批量扫描时可能多条同时失败），用 warn 即可
             log.warn("AI 优化 SQL 失败（{}）: {}", provider.getName(), result.getMessage());

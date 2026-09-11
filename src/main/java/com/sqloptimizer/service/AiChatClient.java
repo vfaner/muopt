@@ -49,6 +49,17 @@ public class AiChatClient {
      */
     public ChatResult complete(AiProvider provider, String apiKey, String system, String user,
                                int maxTokens) {
+        return complete(provider, apiKey, system, user, maxTokens, null);
+    }
+
+    /**
+     * 发送一次补全请求并等待完整回复。
+     *
+     * @param overrideTimeoutSeconds 批量场景下的单请求超时上限（秒）；
+     *                               与模型自身超时取较小值，null/<=0 表示只用模型配置
+     */
+    public ChatResult complete(AiProvider provider, String apiKey, String system, String user,
+                               int maxTokens, Long overrideTimeoutSeconds) {
         AiProtocol protocol = provider.getProtocol() == null ? AiProtocol.OPENAI : provider.getProtocol();
         String endpoint = protocol.resolveEndpoint(provider.getBaseUrl());
         String model = provider.getModel() == null ? "" : provider.getModel().trim();
@@ -58,17 +69,22 @@ public class AiChatClient {
             return ChatResult.failure("模型不能为空", endpoint, model, 0);
         }
 
-        Duration timeout = Duration.ofSeconds(provider.getTimeoutSeconds() == null
-                || provider.getTimeoutSeconds() <= 0 ? 60 : provider.getTimeoutSeconds());
+        long configured = provider.getTimeoutSeconds() == null
+                || provider.getTimeoutSeconds() <= 0 ? 60 : provider.getTimeoutSeconds();
+        long effectiveSeconds = overrideTimeoutSeconds != null && overrideTimeoutSeconds > 0
+                ? Math.min(configured, overrideTimeoutSeconds) : configured;
+        // 请求超时（等响应）与连接超时分开：连不上时不应占用一个批量名额几十秒
+        Duration requestTimeout = Duration.ofSeconds(effectiveSeconds);
+        Duration connectTimeout = Duration.ofSeconds(Math.min(10, effectiveSeconds));
 
         try {
             HttpClient client = HttpClient.newBuilder()
-                    .connectTimeout(timeout)
+                    .connectTimeout(connectTimeout)
                     // 跨主机重定向会静默丢掉认证头，直接报错让用户配置最终地址
                     .followRedirects(HttpClient.Redirect.NEVER)
                     .build();
 
-            HttpRequest request = buildRequest(protocol, endpoint, model, apiKey, timeout,
+            HttpRequest request = buildRequest(protocol, endpoint, model, apiKey, requestTimeout,
                     system, user, maxTokens);
             HttpResponse<String> response =
                     client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));

@@ -57,9 +57,9 @@
                 <div class="content-card">
                     <div class="form-section">
                         <div class="form-section-title">项目目录</div>
-                        <el-input v-model="projectPath" placeholder="输入项目绝对路径，例如 /Users/you/projects/my-app">
+                        <el-input v-model="projectPath" :disabled="loading" placeholder="输入项目绝对路径，例如 /Users/you/projects/my-app">
                             <template #append>
-                                <el-button @click="openDirPicker">📁 选择目录</el-button>
+                                <el-button @click="openDirPicker" :disabled="loading">📁 选择目录</el-button>
                             </template>
                         </el-input>
                         <div style="font-size:12px;color:#999;margin-top:6px;">
@@ -70,7 +70,7 @@
                     <div class="form-section">
                         <div class="form-section-title">AI 深度优化</div>
                         <div class="switch-wrapper">
-                            <el-switch v-model="enableAi"></el-switch>
+                            <el-switch v-model="enableAi" :disabled="loading"></el-switch>
                             <span class="switch-label">启用 AI 深度优化（需在「AI 模型」页配置并启用一个模型）</span>
                         </div>
                     </div>
@@ -79,10 +79,23 @@
                         <el-button type="primary" size="large" @click="doScan" :loading="loading">
                             🔍 扫描项目
                         </el-button>
-                        <el-button size="large" @click="clearAll">清空</el-button>
+                        <el-button v-if="loading" size="large" @click="cancelScan">取消扫描</el-button>
+                        <el-button v-else size="large" @click="clearAll">清空</el-button>
                         <span v-if="loading" style="font-size:13px;color:#999;align-self:center;">
-                            正在分析：索引/规则检查即时完成，AI 改写并发执行（最长等待约 90 秒，超时的条目保留本地分析）…
+                            🔄 后台扫描中（已等待 {{ waitingSec }} 秒）：本地分析即时完成，AI 改写 8 路并发，总时限约 120 秒；
+                            <strong style="color:#666;">可以放心切换到其他页面，完成后回到本页会自动显示结果</strong>
                         </span>
+                    </div>
+                </div>
+
+                <!-- 扫描进行中（无旧结果可展示时的占位） -->
+                <div v-if="loading && items.length === 0" class="content-card">
+                    <div class="empty-state">
+                        <div class="empty-icon">🔄</div>
+                        <div>后台扫描进行中（已等待 {{ waitingSec }} 秒）…</div>
+                        <div style="font-size:13px;color:#999;margin-top:8px;">
+                            可以切换到其他菜单或刷新页面，完成后回到本页会自动显示结果
+                        </div>
                     </div>
                 </div>
 
@@ -231,6 +244,7 @@
                 const restoredAt = ref(items.value.length > 0 ? (savedResult.savedAt || null) : null);
                 const savedAtText = computed(() => PageState.formatTime(restoredAt.value));
                 const loading = ref(false);
+                const waitingSec = ref(0);
                 const scanned = ref(!!savedResult.scanned);
                 const dsConnected = ref(false);
                 const dsInfo = ref('');
@@ -301,37 +315,134 @@
                     } catch (e) { /* 忽略 */ }
                 };
 
+                // ---- 异步扫描任务 ----
+                // 扫描在服务端后台执行（任务生命周期与 HTTP 连接无关），前端只负责轮询。
+                // jobId 存入 sessionStorage：切菜单（整页跳转）或 F5 后回到本页，
+                // 凭 jobId 恢复「扫描中」状态并继续轮询，完成后照常展示结果。
+                const JOB_KEY = 'scan-job';
+                const POLL_INTERVAL = 1500;
+                const MAX_POLL_MILLIS = 10 * 60 * 1000; // 前端最长轮询 10 分钟，服务端任务不受影响
+                let pollTimer = null;
+                let pollGeneration = 0;
+
+                const stopPolling = () => {
+                    pollGeneration++;
+                    if (pollTimer) {
+                        clearTimeout(pollTimer);
+                        pollTimer = null;
+                    }
+                };
+
+                const startPolling = (jobId, beganAt) => {
+                    stopPolling();
+                    const my = ++pollGeneration;
+                    const deadlineAt = beganAt + MAX_POLL_MILLIS;
+                    loading.value = true;
+
+                    const finish = () => {
+                        stopPolling();
+                        loading.value = false;
+                        waitingSec.value = 0;
+                        PageState.remove(JOB_KEY);
+                    };
+
+                    const tick = async () => {
+                        if (my !== pollGeneration) return; // 已被新任务/取消取代
+                        waitingSec.value = Math.max(0, Math.round((Date.now() - beganAt) / 1000));
+                        let job;
+                        try {
+                            const resp = await axios.get(`/api/scan/jobs/${jobId}`);
+                            if (my !== pollGeneration) return;
+                            if (resp.data.code === 404) {
+                                finish();
+                                ElementPlus.ElMessage.warning('上次的扫描任务已不存在（服务可能重启过），请重新扫描');
+                                return;
+                            }
+                            job = resp.data.data;
+                        } catch (e) {
+                            if (my !== pollGeneration) return;
+                            // 临时网络错误：稍后继续轮询；超过最长等待才放弃（服务端任务仍会跑完）
+                            if (Date.now() < deadlineAt) {
+                                pollTimer = setTimeout(tick, POLL_INTERVAL * 2);
+                            } else {
+                                finish();
+                                ElementPlus.ElMessage.error('轮询扫描状态超时，请稍后重新进入本页查看结果');
+                            }
+                            return;
+                        }
+
+                        if (job.status === 'RUNNING') {
+                            if (Date.now() > deadlineAt) {
+                                finish();
+                                ElementPlus.ElMessage.error('扫描超过 10 分钟仍未结束，已停止页面等待；服务端任务可能仍在执行，可重新进入页面查看');
+                                return;
+                            }
+                            pollTimer = setTimeout(tick, POLL_INTERVAL);
+                            return;
+                        }
+
+                        if (job.status === 'SUCCESS') {
+                            items.value = job.result || [];
+                            activeNames.value = items.value.map((_, i) => i);
+                            scanned.value = true;
+                            restoredAt.value = null;
+                            persistResult();
+                            const secs = job.finishedAt && job.startedAt
+                                ? ((job.finishedAt - job.startedAt) / 1000).toFixed(1) : '';
+                            ElementPlus.ElMessage.success(
+                                `扫描完成，共识别 ${items.value.length} 条 SQL${secs ? '，后台耗时 ' + secs + ' 秒' : ''}`);
+                        } else if (job.status === 'CANCELLED') {
+                            ElementPlus.ElMessage.info('扫描已取消');
+                        } else {
+                            ElementPlus.ElMessage.error(job.message || '扫描失败');
+                        }
+                        finish();
+                    };
+                    pollTimer = setTimeout(tick, 600);
+                };
+
                 const doScan = async () => {
                     if (!projectPath.value.trim()) {
                         ElementPlus.ElMessage.warning('请输入项目目录');
                         return;
                     }
-                    loading.value = true;
+                    if (loading.value) return;
                     scanned.value = false;
                     try {
-                        const resp = await axios.post('/api/scan', {
+                        const resp = await axios.post('/api/scan/start', {
                             projectPath: projectPath.value.trim(),
                             enableAi: enableAi.value
-                        }, { timeout: 180000 });
+                        });
                         if (resp.data.code === 200) {
-                            items.value = resp.data.data;
-                            activeNames.value = items.value.map((_, i) => i);
-                            scanned.value = true;
-                            restoredAt.value = null;
-                            persistResult();
-                            ElementPlus.ElMessage.success(`扫描完成，共识别 ${items.value.length} 条 SQL`);
+                            const beganAt = Date.now();
+                            PageState.set(JOB_KEY, {
+                                jobId: resp.data.data.jobId,
+                                projectPath: projectPath.value.trim(),
+                                enableAi: enableAi.value,
+                                beganAt
+                            });
+                            startPolling(resp.data.data.jobId, beganAt);
                         } else {
                             ElementPlus.ElMessage.error(resp.data.message || '扫描失败');
                         }
                     } catch (e) {
-                        if (e.code === 'ECONNABORTED') {
-                            ElementPlus.ElMessage.error('扫描超时（超过 180 秒），请缩小目录范围或关闭 AI 后重试');
-                        } else {
-                            ElementPlus.ElMessage.error('扫描失败: ' + (e.response?.data?.message || e.message));
-                        }
-                    } finally {
                         loading.value = false;
+                        ElementPlus.ElMessage.error('提交扫描失败: ' + (e.response?.data?.message || e.message));
                     }
+                };
+
+                const cancelScan = async () => {
+                    const job = PageState.get(JOB_KEY);
+                    try {
+                        if (job && job.jobId) {
+                            await axios.post(`/api/scan/jobs/${job.jobId}/cancel`);
+                        }
+                    } catch (e) { /* 任务可能刚结束，忽略 */ }
+                    stopPolling();
+                    loading.value = false;
+                    waitingSec.value = 0;
+                    PageState.remove(JOB_KEY);
+                    ElementPlus.ElMessage.info('已取消扫描');
                 };
 
                 const doReplace = async (r, i) => {
@@ -394,25 +505,46 @@
                     }
                 };
 
-                const clearAll = () => {
+                const clearAll = async () => {
+                    // 正在跑的任务先在服务端取消，再清本地状态
+                    if (loading.value) {
+                        const job = PageState.get(JOB_KEY);
+                        try {
+                            if (job && job.jobId) {
+                                await axios.post(`/api/scan/jobs/${job.jobId}/cancel`);
+                            }
+                        } catch (e) { /* 忽略 */ }
+                        stopPolling();
+                        loading.value = false;
+                        waitingSec.value = 0;
+                    }
                     projectPath.value = '';
                     items.value = [];
                     activeNames.value = [];
                     scanned.value = false;
                     restoredAt.value = null;
+                    PageState.remove(JOB_KEY);
                     PageState.remove('scan-input');
                     PageState.remove('scan-result');
                 };
 
-                onMounted(fetchStatus);
+                onMounted(() => {
+                    fetchStatus();
+                    // 切菜单/刷新回来：若上次任务仍在服务端运行，恢复扫描中状态并继续轮询；
+                    // 若任务其实已经跑完（切走期间完成），第一次轮询就会带回结果。
+                    const savedJob = PageState.get(JOB_KEY);
+                    if (savedJob && savedJob.jobId) {
+                        startPolling(savedJob.jobId, savedJob.beganAt || Date.now());
+                    }
+                });
 
-                return { projectPath, enableAi, items, activeNames, loading, scanned,
+                return { projectPath, enableAi, items, activeNames, loading, waitingSec, scanned,
                     restoredAt, savedAtText,
                     dsConnected, dsInfo,
                     dirDialogVisible, dirLoading, dirCurrent, dirParent, dirHome,
                     dirEntries, dirSelected, pickable,
                     openDirPicker, loadDirs, confirmDir,
-                    doScan, doReplace, sourceLabel, sourceTagType,
+                    doScan, cancelScan, doReplace, sourceLabel, sourceTagType,
                     countMissing, tagText, copyText, clearAll };
             }
         }).use(ElementPlus).mount('#app');

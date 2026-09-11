@@ -130,7 +130,10 @@ and enter the full JDBC URL.
 | `/api/optimize/batch` | POST | Batch-optimize multiple SQL (semicolon-separated) |
 | `/api/status` | GET | Global status (data source / AI configured) |
 | `/api/explain` | POST | Execution-plan analysis (requires data source) |
-| `/api/scan` | POST | Scan a project directory and extract SQL |
+| `/api/scan/start` | POST | Start an async scan job, returns jobId (used by the page) |
+| `/api/scan/jobs/{jobId}` | GET | Scan job status (RUNNING/SUCCESS/FAILED/CANCELLED; carries result on success) |
+| `/api/scan/jobs/{jobId}/cancel` | POST | Cancel a running scan job |
+| `/api/scan` | POST | Scan a project directory synchronously (kept for compatibility) |
 | `/api/scan/replace` | POST | Replace optimized SQL back into the source file (auto `.bak` backup) |
 | `/api/scan/dirs` | GET | Browse server directory tree (for the directory picker) |
 | `/api/datasource/list`, `/save` | GET/POST | List connections (passwords never returned) / create·update |
@@ -189,7 +192,8 @@ sql-optimizer-tool/
 ## 📝 Notes
 
 1. **Multiple configs with exclusive enable**: Any number of database connections and AI models can be saved, but at most one of each kind is enabled at a time; exclusivity is enforced inside a server-side transaction (not just in the browser). Configs persist in the embedded H2 file database under `./data` and survive restarts. Passwords/API keys are encrypted at rest and never returned to the frontend; leaving the field blank on edit keeps the stored value. Override the encryption secret via `APP_CRYPTO_PASSWORD` / `APP_CRYPTO_SALT`. On startup the app best-effort reconnects to the previously enabled database; a failed reconnect shows an "enabled but offline" state in the UI.
-   - **AI in scan mode**: every SQL gets millisecond-level local rule analysis first; AI rewrites then run **concurrently** (default 4 in parallel, max 20 statements per scan, 90s overall deadline). Items not finished by the deadline keep their local analysis with a timeout note, so the page never waits indefinitely. Tune via `APP_AI_SCAN_CONCURRENCY` / `APP_AI_SCAN_TIMEOUT`.
+   - **Scans run as server-side background jobs**: clicking scan immediately returns a job id; the job executes on a server thread, independent of the browser connection — switching menus, full-page navigation or even refreshing the page no longer loses the scan. Returning to the page restores the "scanning" state from the job id kept in sessionStorage and resumes polling; the result renders automatically when ready, and the job can be cancelled. Finished job results are retained server-side for 30 minutes (jobs are lost on server restart — the UI then prompts to rescan).
+   - **AI in scan mode**: every SQL gets millisecond-level local rule analysis first; AI rewrites then run **concurrently** (default 8 in parallel, max 20 statements per scan, 120s overall deadline, 45s per-request cap — a hung request frees its slot for later statements). Items not finished by the deadline keep their local analysis with a timeout note. Tune via `APP_AI_SCAN_CONCURRENCY` / `APP_AI_SCAN_TIMEOUT` / `APP_AI_SCAN_PER_REQUEST_TIMEOUT`.
 2. **Execution-plan safety**: For PostgreSQL-family databases, `EXPLAIN` (without ANALYZE) is used, so no write operations are actually executed.
 3. **Execution-plan views**: MySQL 8 uses `EXPLAIN FORMAT=JSON` to parse a structured plan tree (table/tree/diagram); other databases fall back to the raw table.
 4. **Index matching rule**: Existing-index detection uses "leftmost-prefix matching", consistent with how databases use indexes.

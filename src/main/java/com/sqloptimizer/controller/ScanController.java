@@ -3,6 +3,7 @@ package com.sqloptimizer.controller;
 import com.sqloptimizer.common.Result;
 import com.sqloptimizer.common.ScanItem;
 import com.sqloptimizer.service.ProjectScanService;
+import com.sqloptimizer.service.ScanJobManager;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,14 +26,53 @@ import java.util.List;
 public class ScanController {
 
     private final ProjectScanService scanService;
+    private final ScanJobManager jobManager;
 
     @Autowired
-    public ScanController(ProjectScanService scanService) {
+    public ScanController(ProjectScanService scanService, ScanJobManager jobManager) {
         this.scanService = scanService;
+        this.jobManager = jobManager;
     }
 
     /**
-     * 扫描项目目录
+     * 提交异步扫描任务，立即返回 jobId。任务在服务端后台运行，
+     * 与浏览器连接无关；前端凭 jobId 轮询 /jobs/{jobId}。
+     */
+    @PostMapping("/start")
+    public Result<StartResponse> startScan(@RequestBody ScanRequest request) {
+        if (request.getProjectPath() == null || request.getProjectPath().trim().isEmpty()) {
+            return Result.error(400, "项目目录不能为空");
+        }
+        String jobId = jobManager.start(request.getProjectPath().trim(), request.isEnableAi());
+        return Result.success(new StartResponse(jobId));
+    }
+
+    /**
+     * 查询扫描任务状态。RUNNING 时不带结果；SUCCESS 时携带全部 items；
+     * 任务不存在（服务重启或结果已过期清理）返回 404，前端引导重新扫描。
+     */
+    @GetMapping("/jobs/{jobId}")
+    public Result<JobView> jobStatus(@PathVariable String jobId) {
+        ScanJobManager.Job job = jobManager.get(jobId);
+        if (job == null) {
+            return Result.error(404, "扫描任务不存在或已过期（服务可能重启过），请重新扫描");
+        }
+        return Result.success(JobView.of(job));
+    }
+
+    /**
+     * 取消扫描任务（主要中断 AI 等待阶段，本地分析很短）。
+     */
+    @PostMapping("/jobs/{jobId}/cancel")
+    public Result<?> cancelJob(@PathVariable String jobId) {
+        if (!jobManager.cancel(jobId)) {
+            return Result.error(404, "扫描任务不存在或已结束");
+        }
+        return Result.success(true);
+    }
+
+    /**
+     * 扫描项目目录（同步接口，保留兼容；页面已改用 /start + 轮询）
      */
     @PostMapping
     public Result<List<ScanItem>> scan(@RequestBody ScanRequest request) {
@@ -125,6 +165,46 @@ public class ScanController {
     public static class ScanRequest {
         private String projectPath;
         private boolean enableAi = false;
+    }
+
+    @Data
+    @lombok.AllArgsConstructor
+    public static class StartResponse {
+        private String jobId;
+    }
+
+    /**
+     * 任务状态视图：运行中只回传元信息，成功后才带上结果（轮询响应体尽量小）
+     */
+    @Data
+    public static class JobView {
+        private String jobId;
+        /** RUNNING / SUCCESS / FAILED / CANCELLED */
+        private String status;
+        private String message;
+        private long startedAt;
+        private long finishedAt;
+        private String projectPath;
+        private boolean enableAi;
+        private Integer itemCount;
+        private List<ScanItem> result;
+
+        static JobView of(ScanJobManager.Job job) {
+            JobView v = new JobView();
+            v.jobId = job.getJobId();
+            v.status = job.getStatus();
+            v.message = job.getMessage();
+            v.startedAt = job.getStartedAt();
+            v.finishedAt = job.getFinishedAt();
+            v.projectPath = job.getProjectPath();
+            v.enableAi = job.isEnableAi();
+            v.itemCount = job.getItemCount();
+            // 只有成功结束才返回结果；运行中/失败/取消都不带大对象
+            if ("SUCCESS".equals(job.getStatus())) {
+                v.result = job.getResult();
+            }
+            return v;
+        }
     }
 
     @Data

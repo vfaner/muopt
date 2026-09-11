@@ -72,12 +72,19 @@ public class ProjectScanService {
     private static final int MAX_AI_CALLS_PER_SCAN = 20;
 
     /** AI 调用并发度（app.ai.scan-concurrency 可覆盖） */
-    @org.springframework.beans.factory.annotation.Value("${app.ai.scan-concurrency:4}")
+    @org.springframework.beans.factory.annotation.Value("${app.ai.scan-concurrency:8}")
     private int scanConcurrency;
 
     /** 一次扫描中 AI 部分的最长总等待秒数，超时未完成的条目保留本地分析（app.ai.scan-timeout-seconds 可覆盖） */
-    @org.springframework.beans.factory.annotation.Value("${app.ai.scan-timeout-seconds:90}")
+    @org.springframework.beans.factory.annotation.Value("${app.ai.scan-timeout-seconds:120}")
     private int scanTimeoutSeconds;
+
+    /**
+     * 批量扫描时单条 AI 请求的超时上限（秒）：与模型自身超时取较小值。
+     * 挂死的请求尽早释放并发名额给后面的 SQL；手工优化不受此限制。
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.ai.scan-per-request-timeout-seconds:45}")
+    private int scanPerRequestTimeoutSeconds;
 
     /**
      * 本进程内已扫描过的项目根目录（规范化绝对路径）。
@@ -202,6 +209,11 @@ public class ProjectScanService {
             deadlineExceeded = true;
             futures.forEach(f -> f.cancel(true));
             log.warn("AI 批量优化超过总时限 {}s，未完成的条目仅保留本地分析", scanTimeoutSeconds);
+        } catch (InterruptedException e) {
+            // 扫描任务被取消（用户在页面上点了取消）：恢复中断标志并向上抛出，
+            // 由 ScanJobManager 把任务标记为 CANCELLED，而不是当成正常完成
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("扫描已被取消", e);
         } catch (Exception e) {
             log.warn("AI 批量优化等待异常: {}", e.getMessage());
         } finally {
@@ -233,7 +245,8 @@ public class ProjectScanService {
     /** 单条 AI 改写；中断（总时限到）时不加失败提示，由总流程补超时提示 */
     private void applyAi(ScanItem item) {
         try {
-            String optimized = aiService.optimizeSql(item.getSourceSql());
+            // 批量场景给单请求套上比总时限更短的上限，避免个别挂死请求占住并发名额
+            String optimized = aiService.optimizeSql(item.getSourceSql(), scanPerRequestTimeoutSeconds);
             if (optimized != null && !optimized.isBlank() && !Thread.currentThread().isInterrupted()) {
                 item.setOptimizedSql(optimized);
                 item.setAiOptimized(true);
