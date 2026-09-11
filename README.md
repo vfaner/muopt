@@ -130,7 +130,10 @@ java -jar sql-optimizer-tool-1.0.0.jar --server.port=8090 --server.address=0.0.0
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `/api/optimize` | POST | 优化单条 SQL |
+| `/api/optimize/start` | POST | 提交异步优化任务，返回 jobId（页面使用） |
+| `/api/optimize/jobs/{jobId}` | GET | 查询优化任务状态（RUNNING/SUCCESS/FAILED/CANCELLED，成功时携带结果） |
+| `/api/optimize/jobs/{jobId}/cancel` | POST | 取消优化任务 |
+| `/api/optimize` | POST | 优化单条 SQL（同步接口，保留兼容） |
 | `/api/optimize/batch` | POST | 批量优化多条 SQL（分号分隔） |
 | `/api/status` | GET | 全局状态（是否已配数据源 / AI） |
 | `/api/explain` | POST | 执行计划分析（需数据源） |
@@ -174,7 +177,9 @@ sql-optimizer-tool/
 │   └── service/
 │       ├── IndexAnalyzerService.java        # 索引候选列提取（规则引擎核心）
 │       ├── SqlOptimizerService.java         # 优化编排：组合规则/数据源/AI
+│       ├── OptimizeJobManager.java          # 单条优化的后台任务（提交/轮询/取消）
 │       ├── ProjectScanService.java          # 项目扫描与原地替换
+│       ├── ScanJobManager.java              # 扫描后台任务（提交/轮询/取消）
 │       ├── DatabaseConfigService.java       # 数据源配置 CRUD + 唯一启用标志（事务）
 │       ├── DataSourceService.java           # 活动池热切换/索引检测/大小表/冗余索引
 │       ├── AiProviderService.java           # AI 模型 CRUD + 唯一启用 + 探测记录
@@ -200,7 +205,7 @@ sql-optimizer-tool/
 ## 📝 注意事项
 
 1. **多配置与互斥启用**：数据库连接与 AI 模型均可保存多个，各自同一时刻只能启用一个，互斥关系由服务端事务保证；配置保存在 `./data` 的 H2 文件库中，重启不丢。密码/API Key 加密存储、不回传前端，编辑时留空表示沿用原值；加密口令可用环境变量 `APP_CRYPTO_PASSWORD` / `APP_CRYPTO_SALT` 覆盖。启动时会自动尝试恢复上次启用的数据库连接，失败则在页面显示“启用中·连接失败”。
-   - **扫描是服务端后台任务**：点击扫描后立即返回任务 ID，任务在服务端线程执行、与浏览器连接无关——扫描中切换菜单、整页跳转甚至刷新页面，回来后凭暂存在 sessionStorage 的任务 ID 自动恢复「扫描中」状态并继续轮询，完成后自动展示结果；也可随时取消。任务结果在服务端保留 30 分钟（服务重启后任务丢失，页面会提示重新扫描）。
+   - **优化/扫描都是服务端后台任务**：手工优化与项目扫描点击后都立即返回任务 ID，任务在服务端线程执行、与浏览器连接无关——执行中切换菜单、整页跳转甚至刷新页面，回来后凭暂存在 sessionStorage 的任务 ID 自动恢复「进行中」状态并继续轮询，完成后自动展示结果；也可随时取消。任务结果在服务端保留 30 分钟（服务重启后任务丢失，页面会提示重新执行）。
    - **扫描优化的 AI 执行策略**：所有 SQL 先完成毫秒级本地规则分析，AI 改写再**并发**执行（默认并发 8、单次最多 20 条、总时限 120 秒、单请求 45 秒上限）；挂死的单请求 45 秒释放名额给后续 SQL，到总时限未完成的条目保留本地分析并附超时提示。可用 `APP_AI_SCAN_CONCURRENCY` / `APP_AI_SCAN_TIMEOUT` / `APP_AI_SCAN_PER_REQUEST_TIMEOUT` 调整。
 2. **执行计划安全**：PostgreSQL 系使用 `EXPLAIN`（不含 ANALYZE），不会真实执行写操作。
 3. **执行计划视图**：MySQL 8 通过 `EXPLAIN FORMAT=JSON` 解析出结构化计划树（表格/树形/图形）；其他数据库回退为原始表格。

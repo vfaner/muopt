@@ -65,6 +65,7 @@
                             v-model="sql"
                             type="textarea"
                             :rows="8"
+                            :disabled="loading"
                             placeholder="请输入或粘贴要优化的查询 SQL，例如：&#10;SELECT * FROM orders o JOIN users u ON o.user_id = u.id WHERE o.status = 1 AND o.create_time > '2024-01-01' ORDER BY o.create_time;"
                         ></el-input>
                     </div>
@@ -73,7 +74,7 @@
                     <div class="form-section">
                         <div class="form-section-title">AI 深度优化</div>
                         <div class="switch-wrapper">
-                            <el-switch v-model="enableAi"></el-switch>
+                            <el-switch v-model="enableAi" :disabled="loading"></el-switch>
                             <span class="switch-label">启用 AI 深度优化（需在「AI 模型」页配置并启用一个模型，对 SQL 进行智能改写）</span>
                         </div>
                     </div>
@@ -82,7 +83,23 @@
                         <el-button type="primary" size="large" @click="doOptimize" :loading="loading">
                             🚀 开始优化
                         </el-button>
-                        <el-button size="large" @click="clearAll">清空</el-button>
+                        <el-button v-if="loading" size="large" @click="cancelOptimize">取消</el-button>
+                        <el-button v-else size="large" @click="clearAll">清空</el-button>
+                        <span v-if="loading" style="font-size:13px;color:#999;align-self:center;">
+                            🔄 后台优化中（已等待 {{ waitingSec }} 秒）：本地分析即时完成，等待 AI 改写…
+                            <strong style="color:#666;">可以放心切换到其他页面，完成后回到本页会自动显示结果</strong>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 优化进行中且暂无历史结果 -->
+                <div v-if="loading && !result" class="content-card">
+                    <div class="empty-state">
+                        <div class="empty-icon">🔄</div>
+                        <div>后台优化进行中（已等待 {{ waitingSec }} 秒）…</div>
+                        <div style="font-size:13px;color:#999;margin-top:8px;">
+                            可以切换到其他菜单或刷新页面，完成后回到本页会自动显示结果
+                        </div>
                     </div>
                 </div>
 
@@ -179,6 +196,7 @@
                 const restoredAt = ref(result.value ? (saved.savedAt || null) : null);
                 const savedAtText = computed(() => PageState.formatTime(restoredAt.value));
                 const loading = ref(false);
+                const waitingSec = ref(0);
                 const dsConnected = ref(false);
                 const dsInfo = ref('');
 
@@ -199,30 +217,127 @@
                     } catch (e) { /* 忽略 */ }
                 };
 
+                // ---- 异步优化任务 ----
+                // 与扫描页同理：任务在服务端后台执行，与浏览器连接无关。
+                // jobId 存入 sessionStorage，切菜单/F5 回来后凭它继续轮询，
+                // 不再出现「请求随页面销毁被掐断、按钮一直转圈、结果丢失」。
+                const JOB_KEY = 'manual-job';
+                const POLL_INTERVAL = 1200;
+                const MAX_POLL_MILLIS = 5 * 60 * 1000; // 前端最长轮询 5 分钟，服务端任务不受影响
+                let pollTimer = null;
+                let pollGeneration = 0;
+
+                const stopPolling = () => {
+                    pollGeneration++;
+                    if (pollTimer) {
+                        clearTimeout(pollTimer);
+                        pollTimer = null;
+                    }
+                };
+
+                const startPolling = (jobId, beganAt) => {
+                    stopPolling();
+                    const my = ++pollGeneration;
+                    const deadlineAt = beganAt + MAX_POLL_MILLIS;
+                    loading.value = true;
+
+                    const finish = () => {
+                        stopPolling();
+                        loading.value = false;
+                        waitingSec.value = 0;
+                        PageState.remove(JOB_KEY);
+                    };
+
+                    const tick = async () => {
+                        if (my !== pollGeneration) return;
+                        waitingSec.value = Math.max(0, Math.round((Date.now() - beganAt) / 1000));
+                        let job;
+                        try {
+                            const resp = await axios.get(`/api/optimize/jobs/${jobId}`);
+                            if (my !== pollGeneration) return;
+                            if (resp.data.code === 404) {
+                                finish();
+                                ElementPlus.ElMessage.warning('上次的优化任务已不存在（服务可能重启过），请重新优化');
+                                return;
+                            }
+                            job = resp.data.data;
+                        } catch (e) {
+                            if (my !== pollGeneration) return;
+                            if (Date.now() < deadlineAt) {
+                                pollTimer = setTimeout(tick, POLL_INTERVAL * 2);
+                            } else {
+                                finish();
+                                ElementPlus.ElMessage.error('轮询优化状态超时，请稍后重新进入本页查看结果');
+                            }
+                            return;
+                        }
+
+                        if (job.status === 'RUNNING') {
+                            if (Date.now() > deadlineAt) {
+                                finish();
+                                ElementPlus.ElMessage.error('优化超过 5 分钟仍未结束，已停止页面等待；服务端任务可能仍在执行，可重新进入页面查看');
+                                return;
+                            }
+                            pollTimer = setTimeout(tick, POLL_INTERVAL);
+                            return;
+                        }
+
+                        if (job.status === 'SUCCESS') {
+                            result.value = job.result;
+                            restoredAt.value = null;
+                            persist();
+                            const secs = job.finishedAt && job.startedAt
+                                ? ((job.finishedAt - job.startedAt) / 1000).toFixed(1) : '';
+                            ElementPlus.ElMessage.success(
+                                `优化完成${secs ? '，后台耗时 ' + secs + ' 秒' : ''}`);
+                        } else if (job.status === 'CANCELLED') {
+                            ElementPlus.ElMessage.info('已取消优化');
+                        } else {
+                            ElementPlus.ElMessage.error(job.message || '优化失败');
+                        }
+                        finish();
+                    };
+                    pollTimer = setTimeout(tick, 500);
+                };
+
                 const doOptimize = async () => {
                     if (!sql.value.trim()) {
                         ElementPlus.ElMessage.warning('请输入 SQL 语句');
                         return;
                     }
-                    loading.value = true;
+                    if (loading.value) return;
                     try {
-                        const resp = await axios.post('/api/optimize', {
+                        const resp = await axios.post('/api/optimize/start', {
                             sql: sql.value,
                             enableAi: enableAi.value
                         });
                         if (resp.data.code === 200) {
-                            result.value = resp.data.data;
-                            restoredAt.value = null;
-                            persist();
-                            ElementPlus.ElMessage.success('优化完成');
+                            const beganAt = Date.now();
+                            PageState.set(JOB_KEY, {
+                                jobId: resp.data.data.jobId, beganAt
+                            });
+                            startPolling(resp.data.data.jobId, beganAt);
                         } else {
                             ElementPlus.ElMessage.error(resp.data.message || '优化失败');
                         }
                     } catch (e) {
-                        ElementPlus.ElMessage.error('优化失败: ' + (e.response?.data?.message || e.message));
-                    } finally {
                         loading.value = false;
+                        ElementPlus.ElMessage.error('提交优化失败: ' + (e.response?.data?.message || e.message));
                     }
+                };
+
+                const cancelOptimize = async () => {
+                    const job = PageState.get(JOB_KEY);
+                    try {
+                        if (job && job.jobId) {
+                            await axios.post(`/api/optimize/jobs/${job.jobId}/cancel`);
+                        }
+                    } catch (e) { /* 任务可能刚结束，忽略 */ }
+                    stopPolling();
+                    loading.value = false;
+                    waitingSec.value = 0;
+                    PageState.remove(JOB_KEY);
+                    ElementPlus.ElMessage.info('已取消优化');
                 };
 
                 const tagText = (status) => {
@@ -247,17 +362,38 @@
                     }
                 };
 
-                const clearAll = () => {
+                const clearAll = async () => {
+                    if (loading.value) {
+                        const job = PageState.get(JOB_KEY);
+                        try {
+                            if (job && job.jobId) {
+                                await axios.post(`/api/optimize/jobs/${job.jobId}/cancel`);
+                            }
+                        } catch (e) { /* 忽略 */ }
+                        stopPolling();
+                        loading.value = false;
+                        waitingSec.value = 0;
+                    }
                     sql.value = '';
                     result.value = null;
                     restoredAt.value = null;
+                    PageState.remove(JOB_KEY);
                     PageState.remove('manual');
                 };
 
-                onMounted(fetchStatus);
+                onMounted(() => {
+                    fetchStatus();
+                    // 切菜单/刷新回来：若上次优化仍在服务端执行，恢复等待状态并继续轮询；
+                    // 若任务已经跑完（切走期间完成），第一次轮询就带回结果。
+                    const savedJob = PageState.get(JOB_KEY);
+                    if (savedJob && savedJob.jobId) {
+                        startPolling(savedJob.jobId, savedJob.beganAt || Date.now());
+                    }
+                });
 
-                return { sql, enableAi, result, loading, dsConnected, dsInfo, restoredAt, savedAtText,
-                    doOptimize, tagText, copyText, clearAll };
+                return { sql, enableAi, result, loading, waitingSec, dsConnected, dsInfo,
+                    restoredAt, savedAtText,
+                    doOptimize, cancelOptimize, tagText, copyText, clearAll };
             }
         }).use(ElementPlus).mount('#app');
     </script>
