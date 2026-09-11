@@ -114,6 +114,7 @@
                             <span class="result-title">
                                 优化后的 SQL
                                 <el-tag v-if="result.aiOptimized" size="small" type="success" style="margin-left:8px;">AI 优化</el-tag>
+                                <el-tag v-if="result.localRewritten" size="small" type="warning" style="margin-left:8px;">规则改写（AI 不可用时自动降级）</el-tag>
                             </span>
                             <el-button type="primary" size="small" @click="copyText(result.optimizedSql)">📋 复制</el-button>
                         </div>

@@ -179,6 +179,7 @@ sql-optimizer-tool/
 │       ├── SqlOptimizerService.java         # 优化编排：组合规则/数据源/AI
 │       ├── OptimizeJobManager.java          # 单条优化的后台任务（提交/轮询/取消）
 │       ├── ProjectScanService.java          # 项目扫描与原地替换
+│       ├── LocalRewriteService.java         # AI 不可用时的保底规则改写（JOIN/HAVING/SELECT *）
 │       ├── ScanJobManager.java              # 扫描后台任务（提交/轮询/取消）
 │       ├── DatabaseConfigService.java       # 数据源配置 CRUD + 唯一启用标志（事务）
 │       ├── DataSourceService.java           # 活动池热切换/索引检测/大小表/冗余索引
@@ -206,7 +207,9 @@ sql-optimizer-tool/
 
 1. **多配置与互斥启用**：数据库连接与 AI 模型均可保存多个，各自同一时刻只能启用一个，互斥关系由服务端事务保证；配置保存在 `./data` 的 H2 文件库中，重启不丢。密码/API Key 加密存储、不回传前端，编辑时留空表示沿用原值；加密口令可用环境变量 `APP_CRYPTO_PASSWORD` / `APP_CRYPTO_SALT` 覆盖。启动时会自动尝试恢复上次启用的数据库连接，失败则在页面显示“启用中·连接失败”。
    - **优化/扫描都是服务端后台任务**：手工优化与项目扫描点击后都立即返回任务 ID，任务在服务端线程执行、与浏览器连接无关——执行中切换菜单、整页跳转甚至刷新页面，回来后凭暂存在 sessionStorage 的任务 ID 自动恢复「进行中」状态并继续轮询，完成后自动展示结果；也可随时取消。任务结果在服务端保留 30 分钟（服务重启后任务丢失，页面会提示重新执行）。
-   - **扫描优化的 AI 执行策略**：所有 SQL 先完成毫秒级本地规则分析，AI 改写再**并发**执行（默认并发 8、单次最多 20 条、总时限 120 秒、单请求 45 秒上限）；挂死的单请求 45 秒释放名额给后续 SQL，到总时限未完成的条目保留本地分析并附超时提示。可用 `APP_AI_SCAN_CONCURRENCY` / `APP_AI_SCAN_TIMEOUT` / `APP_AI_SCAN_PER_REQUEST_TIMEOUT` 调整。
+   - **扫描优化的 AI 执行策略**：所有 SQL 先完成毫秒级本地规则分析，AI 改写再**并发**执行（默认并发 8、单次最多 20 条、总时限 120 秒、单请求 45 秒上限）；挂死的单请求 45 秒释放名额给后续 SQL，到总时限未完成的条目自动降级本地规则改写并附超时提示。可用 `APP_AI_SCAN_CONCURRENCY` / `APP_AI_SCAN_TIMEOUT` / `APP_AI_SCAN_PER_REQUEST_TIMEOUT` 调整。
+   - **AI 失败/超时自动降级规则改写**：开启 AI 后，无论未配置模型、请求超时、连接失败、HTTP 错误还是返回为空，都不会再「什么也不变化」——自动回退到本地确定性规则改写（仅做保证语义不变的三类改写：①逗号隐式连接转 ANSI `INNER JOIN ... ON`；② HAVING 中的非聚合过滤条件下移到 WHERE；③已连接数据源时单表 `SELECT *` 按元数据展开为具体列），结果会带「规则改写」标签并逐条列出改动；没有可安全改写的写法时保留原文并给出说明。
+   - **AI 网络与代理**：连接超时（连不上，常见于公司内网直连外网受限）与响应超时（已连通但模型不返回，常见于模型繁忙、超时过短或 Base URL / 模型名填错，如火山方舟须填接入点 ID `ep-xxxx`、Base URL 为 `https://ark.cn-beijing.volces.com/api/v3`）会给出不同的错误提示。需要代理出网时设置环境变量 `HTTPS_PROXY`（或 `APP_AI_PROXY`，形如 `http://127.0.0.1:7890`）后重启；本机地址始终直连。
 2. **执行计划安全**：PostgreSQL 系使用 `EXPLAIN`（不含 ANALYZE），不会真实执行写操作。
 3. **执行计划视图**：MySQL 8 通过 `EXPLAIN FORMAT=JSON` 解析出结构化计划树（表格/树形/图形）；其他数据库回退为原始表格。
 4. **索引匹配规则**：检测已存在索引时采用"最左前缀匹配"，与数据库索引使用逻辑一致。

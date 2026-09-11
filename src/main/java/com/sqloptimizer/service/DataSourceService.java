@@ -370,6 +370,61 @@ public class DataSourceService {
     }
 
     /**
+     * 读取表的列名（按列序号排序），用于 SELECT * 的规则化展开。
+     * 未连接数据源或表不存在时返回空列表。支持 schema.table 形式与各库大小写差异。
+     */
+    public List<String> getColumnNames(String table) {
+        List<String> columns = new ArrayList<>();
+        if (!isConnected() || table == null || table.isBlank()) {
+            return columns;
+        }
+        for (String t : distinctNames(table)) {
+            columns = readColumns(t);
+            if (!columns.isEmpty()) {
+                return columns;
+            }
+        }
+        return columns;
+    }
+
+    /** 通过 JDBC 元数据读取列名；catalog/schema 的归属各库不同，依次尝试 */
+    private List<String> readColumns(String qualifiedName) {
+        String bare = stripQuotes(qualifiedName);
+        String schema = null;
+        String tableName = bare;
+        int dot = bare.lastIndexOf('.');
+        if (dot >= 0) {
+            schema = stripQuotes(bare.substring(0, dot));
+            tableName = stripQuotes(bare.substring(dot + 1));
+        }
+        // 三组候选：MySQL 系 schema 常作为 catalog；PG/Oracle/达梦等作为 schema；最后不限定
+        String[][] candidates = {
+                {tableName, schema, null},   // {table, schema, catalog}
+                {tableName, null, schema},
+                {tableName, null, null}
+        };
+        for (String[] c : candidates) {
+            List<String> cols = new ArrayList<>();
+            try (Connection conn = dataSource.getConnection()) {
+                DatabaseMetaData meta = conn.getMetaData();
+                try (ResultSet rs = meta.getColumns(c[2], c[1], c[0], null)) {
+                    TreeMap<Integer, String> ordered = new TreeMap<>();
+                    while (rs.next()) {
+                        ordered.put(rs.getInt("ORDINAL_POSITION"), rs.getString("COLUMN_NAME"));
+                    }
+                    cols.addAll(ordered.values());
+                }
+            } catch (Exception e) {
+                log.debug("读取表 {} 列名失败(catalog={},schema={}): {}", tableName, c[2], c[1], e.getMessage());
+            }
+            if (!cols.isEmpty()) {
+                return cols;
+            }
+        }
+        return List.of();
+    }
+
+    /**
      * 表名只允许普通标识符字符（含反引号/双引号/方括号引用形式，如 MySQL 保留字 {@code `class`}），
      * 防止解析出的表名把额外 SQL 片段带进拼接语句。
      */

@@ -72,9 +72,10 @@ public class AiService {
         AiChatClient.ChatResult result = chatClient.complete(provider, apiKey, null, prompt,
                 maxTokens, perRequestTimeoutSeconds > 0 ? (long) perRequestTimeoutSeconds : null);
         if (!result.isSuccess()) {
-            // 外部服务超时/鉴权等属于可预期失败（批量扫描时可能多条同时失败），用 warn 即可
+            // 外部服务超时/鉴权等属于可预期失败（批量扫描时可能多条同时失败），用 warn 即可。
+            // 直接透传端点消息（如“request timed out”“HTTP 401 …”），由上层统一加“AI 优化失败：”前缀
             log.warn("AI 优化 SQL 失败（{}）: {}", provider.getName(), result.getMessage());
-            throw new RuntimeException("AI 优化 SQL 失败: " + result.getMessage());
+            throw new RuntimeException(result.getMessage());
         }
         return stripCodeFence(result.getText()).trim();
     }

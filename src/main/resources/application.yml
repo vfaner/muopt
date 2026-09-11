@@ -40,6 +40,9 @@ app:
     scan-concurrency: ${APP_AI_SCAN_CONCURRENCY:8}
     scan-timeout-seconds: ${APP_AI_SCAN_TIMEOUT:120}
     scan-per-request-timeout-seconds: ${APP_AI_SCAN_PER_REQUEST_TIMEOUT:45}
+    # 访问 AI 端点的 HTTP 代理（公司内网直连外网超时时配置），形如 http://127.0.0.1:7890；
+    # 留空时自动使用标准环境变量 HTTPS_PROXY / HTTP_PROXY，本机地址始终直连
+    proxy: ${APP_AI_PROXY:}
 
 logging:
   level:

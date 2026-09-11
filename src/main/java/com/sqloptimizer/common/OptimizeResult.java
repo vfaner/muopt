@@ -33,4 +33,7 @@ public class OptimizeResult {
 
     /** 是否经过 AI 深度优化 */
     private boolean aiOptimized = false;
+
+    /** AI 不可用（未配置/失败/超时）时，是否已自动降级为本地规则改写 */
+    private boolean localRewritten = false;
 }

@@ -29,14 +29,17 @@ public class SqlOptimizerService {
     private final IndexAnalyzerService indexAnalyzer;
     private final DataSourceService dataSourceService;
     private final AiService aiService;
+    private final LocalRewriteService localRewrite;
 
     @Autowired
     public SqlOptimizerService(IndexAnalyzerService indexAnalyzer,
                                DataSourceService dataSourceService,
-                               AiService aiService) {
+                               AiService aiService,
+                               LocalRewriteService localRewrite) {
         this.indexAnalyzer = indexAnalyzer;
         this.dataSourceService = dataSourceService;
         this.aiService = aiService;
+        this.localRewrite = localRewrite;
     }
 
     /**
@@ -91,19 +94,24 @@ public class SqlOptimizerService {
         // 4. 基础优化提示（本地规则）
         addBasicTips(trimmed, result);
 
-        // 5. AI 深度优化（可选）
+        // 5. AI 深度优化（可选）；AI 不可用/失败/超时时自动降级为本地规则改写，
+        //    保证用户点了优化至少拿到确定性的规则优化结果，而不是原文不动。
         if (enableAi) {
             if (!aiService.isConfigured()) {
-                result.getTips().add("未启用 AI 模型，已跳过 AI 深度优化（请在「AI 模型」页配置并启用一个模型）。");
+                applyLocalRewrite(trimmed, result, "未启用 AI 模型");
             } else {
                 try {
                     String optimized = aiService.optimizeSql(trimmed);
                     if (optimized != null && !optimized.isBlank()) {
                         result.setOptimizedSql(optimized);
                         result.setAiOptimized(true);
+                    } else {
+                        applyLocalRewrite(trimmed, result, "AI 返回内容为空");
                     }
                 } catch (Exception e) {
-                    result.getTips().add("AI 优化失败：" + e.getMessage());
+                    String reason = e.getMessage() == null ? "AI 服务不可用" : e.getMessage();
+                    log.info("AI 优化失败，降级本地规则改写: {}", reason);
+                    applyLocalRewrite(trimmed, result, "AI 优化失败：" + reason);
                 }
             }
         }
@@ -112,6 +120,24 @@ public class SqlOptimizerService {
             result.getTips().add("未从该 SQL 中解析出可优化的索引列（可能是全表操作或语法未覆盖）。");
         }
         return result;
+    }
+
+    /**
+     * AI 不可用时的降级路径：应用本地规则改写，并在提示中说明降级原因与每条改动。
+     */
+    private void applyLocalRewrite(String sql, OptimizeResult result, String reason) {
+        // 去掉错误信息末尾的句号，避免与拼接的「，已自动…」「；本地规则…」连用
+        reason = reason.replaceAll("[。.；;，,\\s]+$", "");
+        LocalRewriteService.RewriteOutcome outcome = localRewrite.tryRewrite(sql);
+        if (outcome != null) {
+            result.setOptimizedSql(outcome.getRewrittenSql());
+            result.setLocalRewritten(true);
+            result.getTips().add(reason + "，已自动改用本地规则改写：");
+            outcome.getChanges().forEach(c -> result.getTips().add("  · " + c));
+        } else {
+            result.getTips().add(reason + "；本地规则未发现可安全自动改写的写法，原 SQL 保持不变，"
+                    + "可参考索引建议与优化提示手动调整。");
+        }
     }
 
     /**

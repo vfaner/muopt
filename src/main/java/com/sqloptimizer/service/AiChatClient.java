@@ -11,12 +11,18 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 
 /**
  * 向 chat-completion 端点发起一次 HTTP 调用，支持两种协议（移植自 synctool）。
@@ -36,6 +42,21 @@ public class AiChatClient {
     private static final int MAX_ERROR_CHARS = 300;
 
     private final ObjectMapper mapper = new ObjectMapper();
+
+    /**
+     * 访问 AI 端点使用的 HTTP 代理（如 http://127.0.0.1:7890）。
+     * 为空时自动回退标准环境变量 HTTPS_PROXY / HTTP_PROXY；本机地址不走代理。
+     * 公司内网直连外网超时时，这通常就是根因——JDK 默认不使用系统代理。
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.ai.proxy:}")
+    private String configuredProxy;
+
+    /** 环境变量代理候选（顺序即优先级） */
+    private static final List<String> PROXY_ENVS =
+            List.of("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy");
+
+    private static final List<String> NO_PROXY_HOSTS =
+            List.of("localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1");
 
     /**
      * 发送一次补全请求并等待完整回复。
@@ -77,12 +98,17 @@ public class AiChatClient {
         Duration requestTimeout = Duration.ofSeconds(effectiveSeconds);
         Duration connectTimeout = Duration.ofSeconds(Math.min(10, effectiveSeconds));
 
+        String host = URI.create(endpoint).getHost();
         try {
-            HttpClient client = HttpClient.newBuilder()
+            HttpClient.Builder builder = HttpClient.newBuilder()
                     .connectTimeout(connectTimeout)
                     // 跨主机重定向会静默丢掉认证头，直接报错让用户配置最终地址
-                    .followRedirects(HttpClient.Redirect.NEVER)
-                    .build();
+                    .followRedirects(HttpClient.Redirect.NEVER);
+            ProxySelector proxy = proxySelectorFor(URI.create(endpoint));
+            if (proxy != null) {
+                builder.proxy(proxy);
+            }
+            HttpClient client = builder.build();
 
             HttpRequest request = buildRequest(protocol, endpoint, model, apiKey, requestTimeout,
                     system, user, maxTokens);
@@ -100,15 +126,96 @@ public class AiChatClient {
             return ChatResult.failure("HTTP " + response.statusCode()
                     + (detail.isEmpty() ? "" : " — " + detail), endpoint, model, ms);
 
+        } catch (HttpConnectTimeoutException e) {
+            // 连接阶段超时：TCP 都握不上手——内网直连外网不通、需要代理时最典型的表现
+            String msg = String.format("连接 AI 端点超时：%d 秒内无法连接 %s。通常是网络不可达；"
+                            + "若处于公司内网，可能需要配置 HTTP 代理（设置 app.ai.proxy 或环境变量 HTTPS_PROXY）。",
+                    connectTimeout.toSeconds(), host);
+            log.warn("AI 请求 '{}' 连接超时: {}", provider.getName(), host);
+            return ChatResult.failure(msg, endpoint, model, System.currentTimeMillis() - start);
+        } catch (HttpTimeoutException e) {
+            // 已连通但模型迟迟不响应：模型慢、超时设置过小或路径/模型名错误被网关挂起
+            String msg = String.format("AI 模型 %d 秒内未返回响应（连接已建立）：模型繁忙或超时时间过短，"
+                            + "可在「AI 模型」页调大超时后重试；火山方舟请确认 Base URL 为 "
+                            + "https://ark.cn-beijing.volces.com/api/v3，且模型填写接入点 ID（ep-xxxx）。",
+                    requestTimeout.toSeconds());
+            log.warn("AI 请求 '{}' 响应超时: {}", provider.getName(), host);
+            return ChatResult.failure(msg, endpoint, model, System.currentTimeMillis() - start);
+        } catch (UnknownHostException e) {
+            return ChatResult.failure("无法解析 AI 端点域名「" + host
+                            + "」（DNS 失败），请检查 Base URL 是否正确、本机网络是否需要代理。",
+                    endpoint, model, System.currentTimeMillis() - start);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return ChatResult.failure("请求被中断", endpoint, model,
                     System.currentTimeMillis() - start);
-        } catch (IOException | RuntimeException e) {
-            // 覆盖 DNS 失败、连接拒绝、超时——内网环境最常见的情况
+        } catch (IOException e) {
+            // 覆盖连接拒绝、SSL 握手失败、连接重置等——内网环境常见。
+            // JDK 客户端常只给异常类名而把细节放在 cause 里，统一沿 cause 链取信息。
+            String detail = rootMessage(e);
+            String msg = "无法连接 AI 端点（" + e.getClass().getSimpleName()
+                    + (detail.isEmpty() ? "" : "：" + detail)
+                    + "）。请确认 Base URL 与端口可访问；公司内网直连外网受限时，"
+                    + "可配置环境变量 HTTPS_PROXY（或 app.ai.proxy）后重启。";
+            log.warn("AI 请求 '{}' 连接失败: {}", provider.getName(), e.toString());
+            return ChatResult.failure(msg, endpoint, model, System.currentTimeMillis() - start);
+        } catch (RuntimeException e) {
+            // 响应解析失败等
             log.warn("AI 请求 '{}' 失败: {}", provider.getName(), e.toString());
             return ChatResult.failure(e.getMessage() == null ? e.toString() : e.getMessage(),
                     endpoint, model, System.currentTimeMillis() - start);
+        }
+    }
+
+    /** 沿 cause 链取最后一个有意义的消息；全部为空时返回空串（不回退类名，由调用方补充） */
+    private static String rootMessage(Throwable e) {
+        String msg = "";
+        for (Throwable c = e; c != null; c = c.getCause()) {
+            if (c.getMessage() != null && !c.getMessage().isBlank()
+                    && !c.getMessage().equals(c.getClass().getName())) {
+                msg = c.getMessage();
+            }
+        }
+        return msg;
+    }
+
+    /**
+     * 按目标端点解析代理：本机地址直连；否则取 app.ai.proxy 配置，
+     * 再回退标准环境变量 HTTPS_PROXY / HTTP_PROXY。无需代理时返回 null。
+     */
+    private ProxySelector proxySelectorFor(URI endpoint) {
+        String host = endpoint.getHost();
+        if (host == null || NO_PROXY_HOSTS.contains(host.toLowerCase())
+                || host.startsWith("127.") || host.equals("[::1]")) {
+            return null;
+        }
+        String spec = configuredProxy;
+        if (spec == null || spec.isBlank()) {
+            for (String name : PROXY_ENVS) {
+                String v = System.getenv(name);
+                if (v != null && !v.isBlank()) {
+                    spec = v;
+                    break;
+                }
+            }
+        }
+        if (spec == null || spec.isBlank()) {
+            return null;
+        }
+        try {
+            URI proxyUri = URI.create(spec.contains("://") ? spec : "http://" + spec);
+            if (proxyUri.getHost() == null || proxyUri.getPort() < 0) {
+                log.warn("AI 代理配置无效（需形如 http://host:port）: {}", spec);
+                return null;
+            }
+            if (proxyUri.getUserInfo() != null) {
+                log.warn("AI 代理地址中包含账号密码，当前暂不支持代理认证，已忽略凭据部分");
+            }
+            log.debug("AI 请求 {} 走代理 {}:{}", host, proxyUri.getHost(), proxyUri.getPort());
+            return ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort()));
+        } catch (RuntimeException e) {
+            log.warn("AI 代理配置无效 {}: {}", spec, e.getMessage());
+            return null;
         }
     }
 

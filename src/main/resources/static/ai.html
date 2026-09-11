@@ -120,7 +120,7 @@
                             <el-input v-model="form.baseUrl" placeholder="如 https://dashscope.aliyuncs.com/compatible-mode/v1"></el-input>
                         </el-form-item>
                         <el-form-item label="模型名称" required>
-                            <el-input v-model="form.model" placeholder="如 qwen-max-latest / deepseek-chat / claude-3-5-sonnet-latest"></el-input>
+                            <el-input v-model="form.model" placeholder="如 qwen-max-latest / deepseek-chat；火山方舟填接入点 ID（ep-xxxx）"></el-input>
                         </el-form-item>
                         <el-form-item label="API Key">
                             <el-input v-model="form.apiKey" type="password" show-password
@@ -132,6 +132,12 @@
                         <el-form-item label="超时(秒)">
                             <el-input-number v-model="form.timeoutSeconds" :min="5" :max="600"></el-input-number>
                         </el-form-item>
+                        <div style="font-size:12px;color:#999;line-height:1.8;background:#fafafa;border-radius:6px;padding:8px 12px;">
+                            <div>📌 常见 OpenAI 兼容配置：</div>
+                            <div>· 火山方舟（豆包）：Base URL 填 <code>https://ark.cn-beijing.volces.com/api/v3</code>，模型填<strong>推理接入点 ID（ep-xxxx）</strong></div>
+                            <div>· 阿里百炼：<code>https://dashscope.aliyuncs.com/compatible-mode/v1</code> · DeepSeek：<code>https://api.deepseek.com</code></div>
+                            <div>· 一直「连接超时」多半是网络不通：公司内网可在服务端设置环境变量 <code>HTTPS_PROXY=http://代理IP:端口</code>（或 app.ai.proxy）后重启</div>
+                        </div>
                     </el-form>
                     <template #footer>
                         <el-button @click="dialogVisible = false">取消</el-button>

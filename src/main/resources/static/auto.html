@@ -145,6 +145,7 @@
                                 <div class="result-header">
                                     <span class="result-title">优化后 SQL
                                         <el-tag v-if="r.aiOptimized" size="small" type="success" style="margin-left:8px;">AI</el-tag>
+                                        <el-tag v-else-if="r.optimizedSql !== r.sourceSql" size="small" type="warning" style="margin-left:8px;">规则</el-tag>
                                     </span>
                                     <el-button type="primary" size="small" @click="copyText(r.optimizedSql)">📋 复制</el-button>
                                 </div>

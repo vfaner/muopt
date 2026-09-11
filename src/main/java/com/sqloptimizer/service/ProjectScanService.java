@@ -39,6 +39,7 @@ public class ProjectScanService {
 
     private final SqlOptimizerService optimizerService;
     private final AiService aiService;
+    private final LocalRewriteService localRewrite;
 
     /** 需要跳过的目录名 */
     private static final Set<String> SKIP_DIRS = Set.of(
@@ -93,9 +94,11 @@ public class ProjectScanService {
     private final Set<String> scannedRoots = ConcurrentHashMap.newKeySet();
 
     @Autowired
-    public ProjectScanService(SqlOptimizerService optimizerService, AiService aiService) {
+    public ProjectScanService(SqlOptimizerService optimizerService, AiService aiService,
+                              LocalRewriteService localRewrite) {
         this.optimizerService = optimizerService;
         this.aiService = aiService;
+        this.localRewrite = localRewrite;
     }
 
     /**
@@ -147,10 +150,13 @@ public class ProjectScanService {
             return items;
         }
 
-        // 2) 未启用模型：给一次统一提示
+        // 2) 未启用模型：尝试本地规则改写，没有可安全改写的写法时给引导提示
         if (!aiService.isConfigured()) {
-            String tip = "未启用 AI 模型，已跳过 AI 深度优化（请在「AI 模型」页配置并启用一个模型）。";
-            items.forEach(i -> i.getTips().add(tip));
+            for (ScanItem item : items) {
+                if (!applyLocalFallback(item, "未启用 AI 模型")) {
+                    item.getTips().add("未启用 AI 模型，已跳过 AI 深度优化（请在「AI 模型」页配置并启用一个模型）。");
+                }
+            }
             return items;
         }
 
@@ -229,11 +235,25 @@ public class ProjectScanService {
         }
         if (deadlineExceeded) {
             for (ScanItem item : candidates) {
-                boolean hasFailureTip = item.getTips().stream()
-                        .anyMatch(t -> t.startsWith("AI 优化失败"));
-                if (!item.isAiOptimized() && !hasFailureTip) {
-                    item.getTips().add("AI 优化超过本次扫描总时限（" + scanTimeoutSeconds
-                            + " 秒）未返回，该条仅保留本地规则分析，可稍后单独重试。");
+                if (item.isAiOptimized()) {
+                    continue;
+                }
+                // 已在单条任务内处理完（失败/空返回并降级）的条目不再补超时提示，
+                // 只有被总时限中断、什么结论都没拿到的条目才提示超时
+                boolean alreadyHandled = item.getTips().stream()
+                        .anyMatch(t -> t.startsWith("AI 优化失败") || t.startsWith("AI 返回内容为空"));
+                if (!alreadyHandled) {
+                    // 被总时限中断的条目：尝试本地规则改写，无可改写写法时给出保留本地分析的提示
+                    String timeoutReason = "AI 优化超过本次扫描总时限（" + scanTimeoutSeconds + " 秒）未返回";
+                    boolean rewritten = item.getOptimizedSql() != null
+                            && !item.getOptimizedSql().equals(item.getSourceSql());
+                    if (!rewritten) {
+                        rewritten = applyLocalFallback(item, timeoutReason);
+                    }
+                    if (!rewritten) {
+                        item.getTips().add(timeoutReason + "，本地规则未发现可安全改写的写法，"
+                                + "该条保留本地分析结果，可稍后单独重试 AI。");
+                    }
                 }
             }
         }
@@ -242,21 +262,50 @@ public class ProjectScanService {
                 ok, candidates.size(), concurrency, scanTimeoutSeconds);
     }
 
-    /** 单条 AI 改写；中断（总时限到）时不加失败提示，由总流程补超时提示 */
+    /** 单条 AI 改写；中断（总时限到）时不加失败提示，由总流程补超时提示并统一降级 */
     private void applyAi(ScanItem item) {
         try {
             // 批量场景给单请求套上比总时限更短的上限，避免个别挂死请求占住并发名额
             String optimized = aiService.optimizeSql(item.getSourceSql(), scanPerRequestTimeoutSeconds);
-            if (optimized != null && !optimized.isBlank() && !Thread.currentThread().isInterrupted()) {
+            if (Thread.currentThread().isInterrupted()) {
+                return; // 总时限收尾时统一补提示与本地降级
+            }
+            if (optimized != null && !optimized.isBlank()) {
                 item.setOptimizedSql(optimized);
                 item.setAiOptimized(true);
+            } else if (!applyLocalFallback(item, "AI 返回内容为空")) {
+                item.getTips().add("AI 返回内容为空，该条保留本地分析结果，可稍后重试。");
             }
         } catch (Exception e) {
             if (Thread.currentThread().isInterrupted()) {
-                return;
+                return; // 总时限收尾时统一补提示与本地降级
             }
-            item.getTips().add("AI 优化失败：" + e.getMessage());
+            String reason = e.getMessage() == null ? "AI 服务不可用" : e.getMessage();
+            if (!applyLocalFallback(item, "AI 优化失败：" + reason)) {
+                item.getTips().add("AI 优化失败：" + reason
+                        + "；本地规则未发现可安全改写的写法，该条保留本地分析结果，可稍后重试。");
+            }
         }
+    }
+
+    /**
+     * AI 不可用（失败/超时）时的降级路径：用本地规则改写 SQL。
+     * 已产生过改写的条目不重复应用。返回是否发生改写。
+     */
+    private boolean applyLocalFallback(ScanItem item, String reason) {
+        if (item.isAiOptimized()) {
+            return false;
+        }
+        // 去掉错误信息末尾的句号，避免与拼接的「，已自动…」连用
+        reason = reason.replaceAll("[。.；;，,\\s]+$", "");
+        LocalRewriteService.RewriteOutcome outcome = localRewrite.tryRewrite(item.getSourceSql());
+        if (outcome == null) {
+            return false;
+        }
+        item.setOptimizedSql(outcome.getRewrittenSql());
+        item.getTips().add(reason + "，已自动改用本地规则改写：");
+        outcome.getChanges().forEach(c -> item.getTips().add("  · " + c));
+        return true;
     }
 
     // ---------- XML（MyBatis） ----------
