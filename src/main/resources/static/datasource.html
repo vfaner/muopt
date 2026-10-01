@@ -122,22 +122,22 @@
                                 <el-option label="高斯数据库 GaussDB（PostgreSQL 协议）" value="gaussdb"></el-option>
                                 <el-option label="openGauss（原厂驱动已内置）" value="opengauss"></el-option>
                                 <el-option label="人大金仓 KingBaseES V8（原厂驱动已内置）" value="kingbase"></el-option>
-                                <el-option label="瀚高数据库 HighGo" value="highgo"></el-option>
-                                <el-option label="海量数据 Vastbase" value="vastbase"></el-option>
-                                <el-option label="南大通用 GBase" value="gbase"></el-option>
-                                <el-option label="神通 Oscar" value="oscar"></el-option>
-                                <el-option label="崖山 YashanDB" value="yashandb"></el-option>
-                                <el-option label="SQL Server" value="sqlserver"></el-option>
-                                <el-option label="DB2" value="db2"></el-option>
-                                <el-option label="OceanBase" value="oceanbase"></el-option>
-                                <el-option label="TiDB" value="tidb"></el-option>
+                                <el-option label="SQL Server（需驱动 jar）" value="sqlserver"></el-option>
+                                <el-option label="DB2（需驱动 jar）" value="db2"></el-option>
+                                <el-option label="OceanBase（需驱动 jar）" value="oceanbase"></el-option>
+                                <el-option label="TiDB（需驱动 jar）" value="tidb"></el-option>
                                 <el-option label="H2 数据库" value="h2"></el-option>
+                                <el-option label="瀚高数据库 HighGo（需驱动 jar）" value="highgo"></el-option>
+                                <el-option label="海量数据 Vastbase（需驱动 jar）" value="vastbase"></el-option>
+                                <el-option label="南大通用 GBase（需驱动 jar）" value="gbase"></el-option>
+                                <el-option label="神通 Oscar（需驱动 jar）" value="oscar"></el-option>
+                                <el-option label="崖山 YashanDB（需驱动 jar）" value="yashandb"></el-option>
                                 <el-option label="自定义（完整 JDBC URL / 外部驱动 jar）" value="custom"></el-option>
                             </el-select>
                         </el-form-item>
 
-                        <!-- 预设类型：主机/端口/库名 -->
-                        <template v-if="form.dbType !== 'custom'">
+                        <!-- 预设类型：主机/端口/库名（驱动已内置的数据库） -->
+                        <template v-if="['mysql', 'mariadb', 'postgresql', 'oracle', 'dameng', 'opengauss', 'kingbase', 'db2', 'h2'].includes(form.dbType)">
                             <div v-if="form.dbType === 'dameng'" style="font-size:12px;color:#999;margin:-6px 0 10px 110px;">
                                 💡 已内置 DmJdbcDriver18 8.1.3；「数据库名」填模式（Schema）名，也可留空
                             </div>
@@ -155,23 +155,23 @@
                             </el-form-item>
                         </template>
 
-                        <!-- 自定义类型：完整 URL / 驱动类 / 驱动 jar -->
+                        <!-- 信创数据库或自定义类型：完整 URL / 驱动类 / 驱动 jar -->
                         <template v-else>
                             <el-form-item label="JDBC URL" required>
-                                <el-input v-model="form.customUrl" placeholder="jdbc:dm://127.0.0.1:5236?schema=xxx"></el-input>
+                                <el-input v-model="form.customUrl" placeholder="如 jdbc:highgo://127.0.0.1:5866/dbname"></el-input>
                             </el-form-item>
                             <el-form-item label="驱动类名" required>
-                                <el-input v-model="form.customDriver" placeholder="如 dm.jdbc.driver.DmDriver">
+                                <el-input v-model="form.customDriver" placeholder="请填写驱动类名，如 highgo.jdbc.Driver">
                                     <template #append>
                                         <el-button :loading="discovering" @click="onDiscoverDrivers">扫描 jar</el-button>
                                     </template>
                                 </el-input>
                             </el-form-item>
-                            <el-form-item label="驱动 jar 路径">
-                                <el-input v-model="form.customJarPath" placeholder="服务器本地 jar 文件或目录，多个用 ; 分隔；驱动已内置时可留空"></el-input>
+                            <el-form-item label="驱动 jar 路径" required>
+                                <el-input v-model="form.customJarPath" placeholder="服务器本地 jar 文件路径，如 /opt/drivers/highgo.jar"></el-input>
                             </el-form-item>
                             <div style="font-size:12px;color:#999;margin:-6px 0 10px 110px;">
-                                应用运行机器上的路径；点「扫描 jar」可自动读取驱动类名
+                                信创数据库（瀚高/海量/GBase/Oscar/YashanDB）的驱动需从官网下载，填写本地 jar 路径；或点击「扫描 jar」自动读取
                             </div>
                         </template>
 
@@ -203,7 +203,8 @@
             setup() {
                 const defaultPorts = {
                     dameng: 5236, gaussdb: 5432, opengauss: 5432, kingbase: 54321,
-                    oceanbase: 2881, tidb: 4000, mysql: 3306, postgresql: 5432, oracle: 1521
+                    oceanbase: 2881, tidb: 4000, mysql: 3306, postgresql: 5432, oracle: 1521,
+                    sqlserver: 1433, db2: 50000, highgo: 5866, vastbase: 5432, gbase: 5258, oscar: 8080, yashandb: 5436
                 };
                 const list = ref([]);
                 const status = ref({ connected: false, config: null });
