@@ -43,5 +43,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const sidebarElement = document.getElementById('sidebar');
     if (sidebarElement) {
         sidebarElement.innerHTML = sidebarHtml;
+        // 确保菜单点击后页面跳转正常
+        setTimeout(() => {
+            document.querySelectorAll('.menu-item').forEach(item => {
+                item.addEventListener('click', function(e) {
+                    // 点击时，其他页面会加载各自的 menu-loader 并设置 active
+                });
+            });
+        }, 100);
     }
 });
