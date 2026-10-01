@@ -87,7 +87,7 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
-        <!-- MySQL 系列驱动（中央仓库可用）：MySQL / MariaDB / OceanBase / TiDB -->
+        <!-- 核心驱动（中央仓库可用，无需额外下载） -->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
@@ -98,8 +98,6 @@
             <artifactId>mariadb-java-client</artifactId>
             <version>3.3.3</version>
         </dependency>
-
-        <!-- PostgreSQL 系列驱动（中央仓库可用）：PostgreSQL / openGauss / KingBase -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
@@ -115,42 +113,36 @@
             <artifactId>kingbase8</artifactId>
             <version>9.0.1</version>
         </dependency>
-
-        <!-- Oracle 驱动（中央仓库可用） -->
         <dependency>
             <groupId>com.oracle.database.jdbc</groupId>
             <artifactId>ojdbc8</artifactId>
             <version>23.3.0.23.09</version>
         </dependency>
-
-        <!-- DB2 驱动（中央仓库可用） -->
         <dependency>
             <groupId>com.ibm.db2</groupId>
             <artifactId>jcc</artifactId>
             <version>11.5.8.0</version>
         </dependency>
-
-        <!-- H2 驱动（内置） -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
 
-        <!-- 达梦 DM8 驱动：需从官网下载添加到自定义路径 -->
-        <dependency>
-            <groupId>com.dameng</groupId>
-            <artifactId>DmJdbcDriver18</artifactId>
-            <version>8.1.3.140</version>
-            <scope>provided</scope>
-        </dependency>
+        <!-- ========================================
+             其他数据库说明：
+             ========================================
+             1. SQL Server / 达梦 DM8 / 信创数据库（瀚高/海量/GBase/Oscar/YashanDB）
+                / OceanBase / TiDB：需从官网下载驱动 jar
+                或通过「自定义数据库」功能上传 jar 并配置 JDBC URL
 
-        <!-- SQL Server / 信创数据库 / 第三方驱动：需从官网下载，通过「自定义数据库」功能上传驱动 jar -->
-        <!-- 支持的完整数据库列表：
-             MySQL / MariaDB / Oracle / DB2 / PostgreSQL / openGauss / KingBase / H2
-             SQL Server / 达梦 DM8 / OceanBase / TiDB
-             瀚高(HighGo) / 海量(Vastbase) / GBase / Oscar / YashanDB
-             以及所有支持 JDBC 的数据库，通过自定义类型上传驱动 jar 和配置 JDBC URL
+             2. 所有支持 JDBC 的数据库均可通过「自定义数据库」直接使用，
+                无需在 pom.xml 中添加依赖，支持动态加载驱动
+
+             3. 已支持数据库类型：
+                MySQL / MariaDB / Oracle / DB2 / PostgreSQL / openGauss / KingBase / H2
+                SQL Server / 达梦 DM8 / OceanBase / TiDB
+                瀚高(HighGo) / 海量(Vastbase) / GBase / Oscar / YashanDB
         -->
 
         <!-- Spring Boot Test -->
