@@ -1,16 +1,9 @@
-# MuOpt 沐优
+# SQL优化工具
 
-**中文** | [English](readme_en.md)
-
-> 🎬 **项目演示视频（Bilibili）**：[开源SQL优化神器：一键扫描项目代码，智能补全索引，还支持可视化执行计划！](https://www.bilibili.com/video/BV1vVYm6yEhf)
->
-> <a href="https://www.bilibili.com/video/BV1vVYm6yEhf"><img src="docs/demo-video-cover.jpg" alt="SQL 优化工具演示视频" width="760"></a>
->
-> 点击封面即可在 B 站观看（时长约 9 分钟）。
 
 ## 📖 项目简介
 
-MuOpt（沐优）是一个基于 Spring Boot 3 的 Web SQL 优化助手，针对给定的查询 SQL 进行智能优化分析，给出合适的索引建议，并支持连接真实数据源做深度优化与执行计划分析。
+SQL 优化工具是一个基于 Spring Boot 3 的 Web 应用，针对给定的查询 SQL 进行智能优化分析，给出合适的索引建议，并支持连接真实数据源做深度优化与执行计划分析。
 
 **核心特性：索引建议颜色区分** —— 已建立的索引以**灰色**（删除线）展示，尚未建立的以**橙色**展示，均支持一键复制。
 
@@ -32,11 +25,11 @@ MuOpt（沐优）是一个基于 Spring Boot 3 的 Web SQL 优化助手，针对
 
 ### 🎨 设计逻辑
 
-| 场景 | 行为 |
-|------|------|
-| **未配置数据源** | 索引建议全部**橙色**（无法核实是否已存在），可复制 `CREATE INDEX`；执行计划页提示"请先配置数据源" |
-| **已配置数据源** | 索引区分**灰色（已存在）/ 橙色（缺失）**；额外给出冗余索引、大小表驱动建议；可用执行计划分析 |
-| **手工/扫描页头** | 配置数据源后顶部显示"✅ 已配置数据源，可进行深度优化" |
+| 场景              | 行为                                                         |
+| ----------------- | ------------------------------------------------------------ |
+| **未配置数据源**  | 索引建议全部**橙色**（无法核实是否已存在），可复制 `CREATE INDEX`；执行计划页提示"请先配置数据源" |
+| **已配置数据源**  | 索引区分**灰色（已存在）/ 橙色（缺失）**；额外给出冗余索引、大小表驱动建议；可用执行计划分析 |
+| **手工/扫描页头** | 配置数据源后顶部显示"✅ 已配置数据源，可进行深度优化"         |
 
 ## 🖼️ 功能截图
 
@@ -98,14 +91,14 @@ MuOpt（沐优）是一个基于 Spring Boot 3 的 Web SQL 优化助手，针对
 
 ## 🛠️ 技术栈
 
-| 组件 | 技术 |
-|------|------|
-| 后端 | Spring Boot 3.2, JSqlParser 4.9, HikariCP, JDK HttpClient |
-| 前端 | Vue 3 CDN + Element Plus CDN（纯 HTML，无构建工具） |
-| 配置存储 | H2 文件库（`./data`）+ Spring Data JPA；密码/API Key 使用 spring-security-crypto 加密落库 |
-| AI 接口 | OpenAI 兼容协议（百炼 / DeepSeek / OpenAI / 内网网关）+ Anthropic Messages 协议 |
+| 组件       | 技术                                                         |
+| ---------- | ------------------------------------------------------------ |
+| 后端       | Spring Boot 3.2, JSqlParser 4.9, HikariCP, JDK HttpClient    |
+| 前端       | Vue 3 CDN + Element Plus CDN（纯 HTML，无构建工具）          |
+| 配置存储   | H2 文件库（`./data`）+ Spring Data JPA；密码/API Key 使用 spring-security-crypto 加密落库 |
+| AI 接口    | OpenAI 兼容协议（百炼 / DeepSeek / OpenAI / 内网网关）+ Anthropic Messages 协议 |
 | 数据库驱动 | MySQL、PostgreSQL、Oracle、达梦 DM8、openGauss、人大金仓 KingBaseES（信创原厂驱动均已内置） |
-| 构建 | Maven, JDK 17+ |
+| 构建       | Maven, JDK 17+                                               |
 
 ## 🚀 快速开始
 
@@ -144,18 +137,18 @@ java -jar sql-optimizer-tool-1.0.0.jar --server.port=8090 --server.address=0.0.0
 
 ## 📊 支持的数据库（数据源连接）
 
-| 数据库 | 类型标识 | 驱动 | 默认端口 |
-|--------|---------|------|---------|
-| MySQL | `mysql` | MySQL 驱动 | 3306 |
-| Oracle | `oracle` | Oracle 驱动 | 1521 |
-| PostgreSQL | `postgresql` | PostgreSQL 驱动 | 5432 |
-| 达梦 DM8 | `dameng` | **DmJdbcDriver18（内置）** | 5236 |
-| GaussDB | `gaussdb` | PostgreSQL 驱动（走 PG 协议） | 5432 |
-| openGauss | `opengauss` | **opengauss-jdbc（内置）** | 5432 |
-| 人大金仓 KingBaseES V8 | `kingbase` | **kingbase8（内置）** | 54321 |
-| OceanBase | `oceanbase` | MySQL 驱动 | 2881 |
-| TiDB | `tidb` | MySQL 驱动 | 4000 |
-| 自定义 | `custom` | 填写完整 JDBC URL + 驱动类名；驱动不在内置列表时可指定服务器本地 jar 路径（文件或目录，多个用 `;` 分隔），支持「扫描 jar」自动读取驱动类名；支持免密库与附加 URL 参数 | — |
+| 数据库                 | 类型标识     | 驱动                                                         | 默认端口 |
+| ---------------------- | ------------ | ------------------------------------------------------------ | -------- |
+| MySQL                  | `mysql`      | MySQL 驱动                                                   | 3306     |
+| Oracle                 | `oracle`     | Oracle 驱动                                                  | 1521     |
+| PostgreSQL             | `postgresql` | PostgreSQL 驱动                                              | 5432     |
+| 达梦 DM8               | `dameng`     | **DmJdbcDriver18（内置）**                                   | 5236     |
+| GaussDB                | `gaussdb`    | PostgreSQL 驱动（走 PG 协议）                                | 5432     |
+| openGauss              | `opengauss`  | **opengauss-jdbc（内置）**                                   | 5432     |
+| 人大金仓 KingBaseES V8 | `kingbase`   | **kingbase8（内置）**                                        | 54321    |
+| OceanBase              | `oceanbase`  | MySQL 驱动                                                   | 2881     |
+| TiDB                   | `tidb`       | MySQL 驱动                                                   | 4000     |
+| 自定义                 | `custom`     | 填写完整 JDBC URL + 驱动类名；驱动不在内置列表时可指定服务器本地 jar 路径（文件或目录，多个用 `;` 分隔），支持「扫描 jar」自动读取驱动类名；支持免密库与附加 URL 参数 | —        |
 
 ### 信创数据库驱动说明
 
@@ -172,39 +165,39 @@ java -jar sql-optimizer-tool-1.0.0.jar --server.port=8090 --server.address=0.0.0
 
 ## 📡 API 接口
 
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| `/api/optimize/start` | POST | 提交异步优化任务，返回 jobId（页面使用） |
-| `/api/optimize/jobs/{jobId}` | GET | 查询优化任务状态（RUNNING/SUCCESS/FAILED/CANCELLED，成功时携带结果） |
-| `/api/optimize/jobs/{jobId}/cancel` | POST | 取消优化任务 |
-| `/api/optimize` | POST | 优化单条 SQL（同步接口，保留兼容） |
-| `/api/optimize/batch` | POST | 批量优化多条 SQL（分号分隔） |
-| `/api/status` | GET | 全局状态（是否已配数据源 / AI） |
-| `/api/explain` | POST | 执行计划分析（需数据源） |
-| `/api/scan/start` | POST | 提交异步扫描任务，返回 jobId（页面使用） |
-| `/api/scan/jobs/{jobId}` | GET | 查询扫描任务状态（RUNNING/SUCCESS/FAILED/CANCELLED，成功时携带结果） |
-| `/api/scan/jobs/{jobId}/cancel` | POST | 取消扫描任务 |
-| `/api/scan` | POST | 同步扫描项目目录并提取 SQL（保留兼容） |
-| `/api/scan/replace` | POST | 将优化后的 SQL 替换回源文件（自动 `.bak` 备份） |
-| `/api/scan/dirs` | GET | 浏览服务器目录树（供目录选择器使用） |
-| `/api/datasource/list` | GET | 全部数据库连接（密码不回传） |
-| `/api/datasource/save` | POST | 新建/更新连接（编辑时密码留空表示不修改） |
-| `/api/datasource/{id}/enable` | POST | 启用连接（互斥：自动停用其他连接，先验证后热切换） |
-| `/api/datasource/{id}/disable` | POST | 停用连接 |
-| `/api/datasource/{id}/test`、`/api/datasource/test` | POST | 测试已保存/未保存的连接 |
-| `/api/datasource/discover-drivers?jarPath=` | GET | 扫描外部驱动 jar 中声明的驱动类名（自定义类型） |
-| `/api/datasource/{id}/delete` | POST | 删除连接（已启用需先停用） |
-| `/api/datasource/status` | GET | 当前活动连接状态 |
-| `/api/ai/list`、`/api/ai/save` | GET/POST | AI 模型列表 / 新建·更新（Key 不回传，留空不修改） |
-| `/api/ai/{id}/enable`、`/disable`、`/delete`、`/test` | POST | AI 模型互斥启用 / 停用 / 删除 / 探测 |
-| `/api/ai/protocol-defaults` | GET | 协议默认 Base URL |
+| 接口                                                  | 方法     | 说明                                                         |
+| ----------------------------------------------------- | -------- | ------------------------------------------------------------ |
+| `/api/optimize/start`                                 | POST     | 提交异步优化任务，返回 jobId（页面使用）                     |
+| `/api/optimize/jobs/{jobId}`                          | GET      | 查询优化任务状态（RUNNING/SUCCESS/FAILED/CANCELLED，成功时携带结果） |
+| `/api/optimize/jobs/{jobId}/cancel`                   | POST     | 取消优化任务                                                 |
+| `/api/optimize`                                       | POST     | 优化单条 SQL（同步接口，保留兼容）                           |
+| `/api/optimize/batch`                                 | POST     | 批量优化多条 SQL（分号分隔）                                 |
+| `/api/status`                                         | GET      | 全局状态（是否已配数据源 / AI）                              |
+| `/api/explain`                                        | POST     | 执行计划分析（需数据源）                                     |
+| `/api/scan/start`                                     | POST     | 提交异步扫描任务，返回 jobId（页面使用）                     |
+| `/api/scan/jobs/{jobId}`                              | GET      | 查询扫描任务状态（RUNNING/SUCCESS/FAILED/CANCELLED，成功时携带结果） |
+| `/api/scan/jobs/{jobId}/cancel`                       | POST     | 取消扫描任务                                                 |
+| `/api/scan`                                           | POST     | 同步扫描项目目录并提取 SQL（保留兼容）                       |
+| `/api/scan/replace`                                   | POST     | 将优化后的 SQL 替换回源文件（自动 `.bak` 备份）              |
+| `/api/scan/dirs`                                      | GET      | 浏览服务器目录树（供目录选择器使用）                         |
+| `/api/datasource/list`                                | GET      | 全部数据库连接（密码不回传）                                 |
+| `/api/datasource/save`                                | POST     | 新建/更新连接（编辑时密码留空表示不修改）                    |
+| `/api/datasource/{id}/enable`                         | POST     | 启用连接（互斥：自动停用其他连接，先验证后热切换）           |
+| `/api/datasource/{id}/disable`                        | POST     | 停用连接                                                     |
+| `/api/datasource/{id}/test`、`/api/datasource/test`   | POST     | 测试已保存/未保存的连接                                      |
+| `/api/datasource/discover-drivers?jarPath=`           | GET      | 扫描外部驱动 jar 中声明的驱动类名（自定义类型）              |
+| `/api/datasource/{id}/delete`                         | POST     | 删除连接（已启用需先停用）                                   |
+| `/api/datasource/status`                              | GET      | 当前活动连接状态                                             |
+| `/api/ai/list`、`/api/ai/save`                        | GET/POST | AI 模型列表 / 新建·更新（Key 不回传，留空不修改）            |
+| `/api/ai/{id}/enable`、`/disable`、`/delete`、`/test` | POST     | AI 模型互斥启用 / 停用 / 删除 / 探测                         |
+| `/api/ai/protocol-defaults`                           | GET      | 协议默认 Base URL                                            |
 
 ## 📁 项目结构
 
 ```
 sql-optimizer-tool/
 ├── docs/                                     # 功能截图
-├── src/main/java/com/qqmu/muopt/
+├── src/main/java/com/sqloptimizer/
 │   ├── SqlOptimizerApplication.java         # 启动类（H2 平台库存放多数据源/AI 配置）
 │   ├── common/                              # Result / IndexSuggestion / OptimizeResult
 │   │                                        # ExplainResult / ExplainRow / PlanNode / ScanItem
@@ -259,17 +252,6 @@ sql-optimizer-tool/
 4. **索引匹配规则**：检测已存在索引时采用"最左前缀匹配"，与数据库索引使用逻辑一致。
 5. **成本阈值**：执行计划成本 ≥10000 判为偏高才给索引建议；预估扫描行数 ≤500 判为数据量小，提示无需建索引（阈值可在 `ExplainService` 调整）。
 
-## ☕ 打赏支持
-
-如果这个项目对你有帮助，欢迎请我喝杯咖啡 ❤️
-
-<img src="src/main/resources/static/image/ds.png" alt="打赏二维码" width="500">
-
-> 也可在应用内左侧菜单「打赏支持」查看。
-
-## ⭐ Star 支持
-
-觉得好用的话，欢迎给项目点个 **[Star](https://github.com/vfaner/sql-optimizer-tool)** 支持一下，这是对作者最大的鼓励！
 
 ## 📄 许可证
 

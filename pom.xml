@@ -11,13 +11,13 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.sqloptimizer</groupId>
-    <artifactId>sql-optimizer-tool</artifactId>
+    <groupId>com.qqmu</groupId>
+    <artifactId>muopt</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>SQL Optimizer Tool</name>
-    <description>SQL优化工具 - 智能索引建议与执行计划分析</description>
+    <name>MuOpt</name>
+    <description>沐优 - SQL优化助手：智能索引建议与执行计划分析</description>
 
     <properties>
         <java.version>17</java.version>
