@@ -115,14 +115,23 @@
                         <el-form-item label="数据库类型" required>
                             <el-select v-model="form.dbType" placeholder="请选择数据库类型" style="width:100%;" @change="onDbTypeChange">
                                 <el-option label="MySQL" value="mysql"></el-option>
+                                <el-option label="MariaDB" value="mariadb"></el-option>
                                 <el-option label="Oracle" value="oracle"></el-option>
                                 <el-option label="PostgreSQL" value="postgresql"></el-option>
                                 <el-option label="达梦数据库 (DM8，驱动已内置)" value="dameng"></el-option>
                                 <el-option label="高斯数据库 GaussDB（PostgreSQL 协议）" value="gaussdb"></el-option>
                                 <el-option label="openGauss（原厂驱动已内置）" value="opengauss"></el-option>
                                 <el-option label="人大金仓 KingBaseES V8（原厂驱动已内置）" value="kingbase"></el-option>
+                                <el-option label="瀚高数据库 HighGo" value="highgo"></el-option>
+                                <el-option label="海量数据 Vastbase" value="vastbase"></el-option>
+                                <el-option label="南大通用 GBase" value="gbase"></el-option>
+                                <el-option label="神通 Oscar" value="oscar"></el-option>
+                                <el-option label="崖山 YashanDB" value="yashandb"></el-option>
+                                <el-option label="SQL Server" value="sqlserver"></el-option>
+                                <el-option label="DB2" value="db2"></el-option>
                                 <el-option label="OceanBase" value="oceanbase"></el-option>
                                 <el-option label="TiDB" value="tidb"></el-option>
+                                <el-option label="H2 数据库" value="h2"></el-option>
                                 <el-option label="自定义（完整 JDBC URL / 外部驱动 jar）" value="custom"></el-option>
                             </el-select>
                         </el-form-item>
