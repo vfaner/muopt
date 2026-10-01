@@ -34,10 +34,17 @@ public class DatabaseConfig {
 
     /**
      * 数据库类型：
-     * mysql / oceanbase / tidb（MySQL 驱动）
-     * postgresql / gaussdb（PostgreSQL 驱动）、opengauss（原厂驱动）、kingbase（原厂驱动）
+     * mysql / mariadb / oceanbase / tidb（MySQL 驱动）
+     * postgresql / gaussdb / opengauss / kingbase / highgo / vastbase（PostgreSQL 驱动系）
      * oracle（Oracle 驱动）
-     * dameng（内置达梦 DmJdbcDriver18）
+     * sqlserver（SQL Server 驱动）
+     * db2（DB2 驱动）
+     * dameng（达梦 DmJdbcDriver18）
+     * gbase（南大通用 GBase）
+     * oscar（人大金仓神通 Oscar）
+     * yashandb（崖山 YashanDB）
+     * h2（H2 内存库）
+     * custom（自定义：需填写 customUrl / customDriver / customJarPath）
      */
     @Column(name = "db_type", nullable = false, length = 32)
     private String dbType;

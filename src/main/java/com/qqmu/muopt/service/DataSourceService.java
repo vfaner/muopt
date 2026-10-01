@@ -306,8 +306,9 @@ public class DataSourceService {
     private String buildDropIndex(String indexName, String table) {
         String type = currentConfig != null && currentConfig.getDbType() != null
                 ? currentConfig.getDbType().toLowerCase() : "";
+        // MySQL 系列需要 ON，其他类型（PostgreSQL/Oracle/SQL Server/DB2/达梦等）不需要
         return switch (type) {
-            case "mysql", "oceanbase", "tidb" -> "DROP INDEX " + indexName + " ON " + table + ";";
+            case "mysql", "mariadb", "oceanbase", "tidb" -> "DROP INDEX " + indexName + " ON " + table + ";";
             default -> "DROP INDEX " + indexName + ";";
         };
     }
@@ -538,13 +539,27 @@ public class DataSourceService {
             return c.getCustomDriver().trim();
         }
         return switch (dbType.toLowerCase()) {
+            // MySQL 系：MySQL / MariaDB / OceanBase / TiDB
             case "mysql", "oceanbase", "tidb" -> "com.mysql.cj.jdbc.Driver";
-            // GaussDB 走 PostgreSQL 协议；openGauss / 人大金仓使用各自原厂驱动
+            case "mariadb" -> "org.mariadb.jdbc.Driver";
+
+            // PostgreSQL 系：PostgreSQL / openGauss / GaussDB / KingBase / 瀚高(HighGo) / 海量(Vastbase)
             case "postgresql", "gaussdb" -> "org.postgresql.Driver";
             case "opengauss" -> "org.opengauss.Driver";
             case "kingbase" -> "com.kingbase8.Driver";
+            case "highgo" -> "com.highgo.Driver";
+            case "vastbase" -> "com.vastbase.Driver";
+
+            // 其他数据库
             case "oracle" -> "oracle.jdbc.OracleDriver";
+            case "sqlserver", "sqlserver2017", "sqlserver2019" -> "com.microsoft.sqlserver.jdbc.SQLServerDriver";
+            case "db2" -> "com.ibm.db2.jdbc.app.DB2Driver";
             case "dameng", "dm" -> "dm.jdbc.driver.DmDriver";
+            case "gbase" -> "com.gbase.jdbc.Driver";
+            case "oscar" -> "com.oscar.OscarDriver";
+            case "yashandb" -> "com.yashandb.YashandbDriver";
+            case "h2" -> "org.h2.Driver";
+
             default -> throw new IllegalArgumentException("不支持的数据库类型: " + dbType);
         };
     }
@@ -553,22 +568,48 @@ public class DataSourceService {
         String type = c.getDbType().toLowerCase();
         String url = switch (type) {
             case "custom" -> c.getCustomUrl().trim();
+
+            // MySQL 系
             case "mysql", "oceanbase", "tidb" ->
                     "jdbc:mysql://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName()
                             + "?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true";
-            // GaussDB 走 PostgreSQL 协议；openGauss / 人大金仓用原厂 JDBC URL 前缀
+            case "mariadb" ->
+                    "jdbc:mariadb://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName()
+                            + "?useSSL=false&serverTimezone=Asia/Shanghai";
+
+            // PostgreSQL 系
             case "postgresql", "gaussdb" ->
                     "jdbc:postgresql://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
             case "opengauss" ->
                     "jdbc:opengauss://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
             case "kingbase" ->
                     "jdbc:kingbase8://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+            case "highgo" ->
+                    "jdbc:highgo://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+            case "vastbase" ->
+                    "jdbc:vastbase://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+
+            // 其他数据库
             case "oracle" ->
                     "jdbc:oracle:thin:@//" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+            case "sqlserver", "sqlserver2017", "sqlserver2019" ->
+                    "jdbc:sqlserver://" + c.getHost() + ":" + c.getPort() + ";databaseName=" + c.getDatabaseName()
+                            + ";encrypt=false;trustServerCertificate=true";
+            case "db2" ->
+                    "jdbc:db2://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
             case "dameng", "dm" ->
                     "jdbc:dm://" + c.getHost() + ":" + c.getPort()
                             + (c.getDatabaseName() == null || c.getDatabaseName().isBlank()
                             ? "" : "?schema=" + c.getDatabaseName());
+            case "gbase" ->
+                    "jdbc:gbase://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+            case "oscar" ->
+                    "jdbc:oscar://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+            case "yashandb" ->
+                    "jdbc:yashandb://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+            case "h2" ->
+                    "jdbc:h2:file:~/" + c.getDatabaseName() + ";AUTO_SERVER=TRUE";
+
             default -> throw new IllegalArgumentException("不支持的数据库类型: " + c.getDbType());
         };
         return appendExtraParams(url, c.getExtraParams());
