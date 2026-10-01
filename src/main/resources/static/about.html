@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='10' width='48' height='44' rx='6' fill='url(%23g)'/%3E%3Cpath d='M18 40 L28 28 L36 34 L46 20' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <title>MuOpt - 关于软件</title>
+    <link rel="stylesheet" href="/libs/element-plus.index.css">
+    <link rel="stylesheet" href="/common.css">
+    <script src="/libs/vue.global.prod.js"></script>
+    <script src="/libs/element-plus.index.full.min.js"></script>
+    <script src="/libs/axios.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <div class="app-container">
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h1>MuOpt</h1>
+                    <p>沐优 - SQL优化助手</p>
+                </div>
+                <nav class="menu">
+                    <a href="/manual.html" class="menu-item">
+                        <span class="menu-icon">✏️</span><span>手工优化</span>
+                    </a>
+                    <a href="/auto.html" class="menu-item">
+                        <span class="menu-icon">🔍</span><span>扫描优化</span>
+                    </a>
+                    <a href="/explain.html" class="menu-item">
+                        <span class="menu-icon">📊</span><span>SQL执行计划</span>
+                    </a>
+                    <a href="/datasource.html" class="menu-item">
+                        <span class="menu-icon">🔗</span><span>数据源配置</span>
+                    </a>
+                    <a href="/ai.html" class="menu-item">
+                        <span class="menu-icon">🤖</span><span>AI模型配置</span>
+                    </a>
+                    <a href="/about.html" class="menu-item active">
+                        <span class="menu-icon">ℹ️</span><span>关于软件</span>
+                    </a>
+                </nav>
+            </aside>
+
+            <main class="main-content">
+                <div class="page-header">
+                    <h2>关于软件</h2>
+                    <p>MuOpt（沐优）- 智能 SQL 优化助手，专注于数据库索引建议与执行计划分析</p>
+                </div>
+
+                <!-- 头部按钮区域 -->
+                <div class="content-card">
+                    <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:24px;">
+                        <el-button type="primary" size="large" @click="openLink('https://github.com/vfaner/sql-optimizer-tool')">
+                            <span style="margin-right:8px;">🐙</span> GitHub
+                        </el-button>
+                        <el-button type="primary" size="large" @click="openLink('https://gitee.com/vfaner/sql-optimizer-tool')">
+                            <span style="margin-right:8px;">📦</span> Gitee
+                        </el-button>
+                        <el-button type="success" size="large" @click="showDonate">
+                            <span style="margin-right:8px;">❤️</span> 赞助支持
+                        </el-button>
+                    </div>
+                </div>
+
+                <!-- 软件说明 -->
+                <div class="content-card">
+                    <div class="content-card-title">软件使用说明</div>
+                    <div style="line-height:2;color:#666;">
+                        <div style="margin-bottom:12px;"><strong>1. 配置数据源</strong>：点击「数据源配置」，添加你的数据库连接，支持 MySQL/Oracle/PostgreSQL/信创数据库等</div>
+                        <div style="margin-bottom:12px;"><strong>2. SQL 优化</strong>：进入「手工优化」或「扫描优化」，粘贴 SQL，一键获取索引建议与优化改写</div>
+                        <div style="margin-bottom:12px;"><strong>3. 执行计划分析</strong>：进入「SQL执行计划」，查看数据库执行计划，优化查询性能</div>
+                    </div>
+                </div>
+
+                <!-- 版本信息 -->
+                <div class="content-card">
+                    <div class="content-card-title">版本信息</div>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <span>当前版本：v1.0.0</span>
+                        <el-tag v-if="updateStatus === 'latest'" type="success">已是最新版本</el-tag>
+                        <el-button v-if="updateStatus === 'outdated'" type="primary" size="small" @click="updateNow">立即更新</el-button>
+                        <el-tag v-if="updateStatus === 'checking'" type="info">检查中...</el-tag>
+                        <el-tag v-if="updateStatus === 'failed'" type="warning">检查失败</el-tag>
+                    </div>
+                    <div style="margin-top:12px;font-size:13px;color:#999;">
+                        <div v-if="updateStatus === 'checking'">正在检查最新版本，请稍候...</div>
+                        <div v-if="updateStatus === 'failed'">无法连接到更新服务器，请稍后重试</div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- 赞助弹窗 -->
+    <el-dialog v-model="donateVisible" title="赞助支持" width="400px">
+        <div style="text-align:center;padding:20px 0;">
+            <div style="margin-bottom:20px;font-size:16px;color:#333;">选择支付方式支持项目维护</div>
+            <el-button type="primary" size="large" style="margin:8px;">支付宝</el-button>
+            <el-button type="success" size="large" style="margin:8px;">微信支付</el-button>
+            <el-button type="info" size="large" style="margin:8px;">QQ 支付</el-button>
+        </div>
+    </el-dialog>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+        createApp({
+            setup() {
+                const donateVisible = ref(false);
+                const updateStatus = ref('checking'); // checking / latest / outdated / failed
+                const currentVersion = 'v1.0.0';
+                const repoOwner = 'vfaner';
+                const repoName = 'sql-optimizer-tool';
+
+                const openLink = (url) => {
+                    window.open(url, '_blank');
+                };
+
+                const showDonate = () => {
+                    donateVisible.value = true;
+                };
+
+                const checkUpdate = async () => {
+                    updateStatus.value = 'checking';
+                    try {
+                        // 先尝试 GitHub，5秒超时
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+                        try {
+                            const response = await axios.get(`https://api.github.com/repos/${repoOwner}/${repoName}/releases/latest`, {
+                                signal: controller.signal
+                            });
+                            clearTimeout(timeoutId);
+                            const latestVersion = response.data.tag_name;
+                            if (latestVersion === currentVersion) {
+                                updateStatus.value = 'latest';
+                            } else {
+                                updateStatus.value = 'outdated';
+                            }
+                        } catch (e) {
+                            // GitHub 失败，尝试 Gitee，10秒超时
+                            const controller2 = new AbortController();
+                            const timeoutId2 = setTimeout(() => controller2.abort(), 10000);
+                            try {
+                                const giteeResponse = await axios.get(`https://gitee.com/api/v5/repos/${repoOwner}/${repoName}/releases/latest`, {
+                                    signal: controller2.signal
+                                });
+                                clearTimeout(timeoutId2);
+                                const latestVersion = giteeResponse.data.tag_name;
+                                if (latestVersion === currentVersion) {
+                                    updateStatus.value = 'latest';
+                                } else {
+                                    updateStatus.value = 'outdated';
+                                }
+                            } catch (e2) {
+                                clearTimeout(timeoutId2);
+                                updateStatus.value = 'failed';
+                            }
+                        }
+                    } catch (e) {
+                        updateStatus.value = 'failed';
+                    }
+                };
+
+                const updateNow = () => {
+                    // 这里可以实现自动更新逻辑
+                    alert('正在下载最新版本... 下载完成后会自动替换并重启项目');
+                };
+
+                onMounted(() => {
+                    checkUpdate();
+                });
+
+                return {
+                    donateVisible, updateStatus, currentVersion,
+                    openLink, showDonate, updateNow
+                };
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html>
