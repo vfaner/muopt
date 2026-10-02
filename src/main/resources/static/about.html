@@ -105,19 +105,24 @@
 
                 <!-- 头部按钮区域 - 简化，使用实际图标和正确颜色 -->
                 <div class="about-actions" style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:15px;">
-                    <el-button type="primary" size="large" @click="openLink('https://github.com/vfaner/muopt')"
-                               style="background:#24292f;color:white;border-color:#24292f;">
+                    <!-- 去掉 type="primary"：common.css 对 .el-button--primary 有渐变 !important 覆盖，
+                         这两个按钮要保留自己的品牌色，只能走默认 type + 内联样式 -->
+                    <el-button size="large" @click="openLink('https://github.com/vfaner/muopt')"
+                               style="background:#2563eb;color:white;border-color:#2563eb;">
                         <span style="display:flex;align-items:center;gap:8px;">
                             <img src="/image/github.svg" style="width:20px;height:20px;vertical-align:middle;" alt="GitHub">
                             github地址
                         </span>
                     </el-button>
-                    <el-button type="primary" size="large" @click="openLink('https://gitee.com/super_rgh/muopt')"
-                               style="background:#ffffff;color:#c71d23;border-color:#d9d9d9;">
+                    <el-button size="large" @click="openLink('https://gitee.com/super_rgh/muopt')"
+                               style="background:#ffffff;color:#333;border-color:#d9d9d9;">
                         <span style="display:flex;align-items:center;gap:8px;">
                             <img src="/image/gitee.ico" style="width:20px;height:20px;vertical-align:middle;" alt="Gitee">
                             gitee地址
                         </span>
+                    </el-button>
+                    <el-button type="primary" size="large" @click="openLink('https://muopt.qqmu.com')">
+                        <span style="margin-right:8px;">🌐</span> 官网地址
                     </el-button>
                     <el-button type="success" size="large" @click="showDonate"
                                style="background:#fa8c16;border-color:#fa8c16;color:white;">
@@ -169,6 +174,49 @@
                                 <div style="font-size:16px;color:#faad14;">hua47609</div>
                             </div>
                             <el-button type="warning" size="small" @click="openLink('weixin://dl/chat?hua47609')">打开微信</el-button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 产品推荐 -->
+                <div class="content-card" style="margin-bottom:15px;">
+                    <div class="content-card-title">产品推荐</div>
+                    <div class="contact-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+                        <div class="contact-item" style="display:flex;align-items:center;gap:10px;padding:12px;background:#f8f9fa;border-radius:8px;">
+                            <div style="width:40px;height:40px;background:#1677ff;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:20px;">🤖</div>
+                            <div style="flex:1;">
+                                <div style="font-weight:600;color:#333;font-size:14px;">智能客服</div>
+                                <div style="font-size:12px;color:#999;">基于 FastAPI + RAG 的开源智能客服平台</div>
+                                <div style="font-size:14px;color:#1677ff;">kefu.qqmu.com</div>
+                            </div>
+                            <el-button type="primary" size="small" @click="openLink('https://kefu.qqmu.com')">访问官网</el-button>
+                        </div>
+                        <div class="contact-item" style="display:flex;align-items:center;gap:10px;padding:12px;background:#f8f9fa;border-radius:8px;">
+                            <div style="width:40px;height:40px;background:#13c2c2;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:20px;">💬</div>
+                            <div style="flex:1;">
+                                <div style="font-weight:600;color:#333;font-size:14px;">沐问</div>
+                                <div style="font-size:12px;color:#999;">开源免费的桌面 Text2SQL 工具</div>
+                                <div style="font-size:14px;color:#13c2c2;">muask.qqmu.com</div>
+                            </div>
+                            <el-button type="primary" size="small" @click="openLink('https://muask.qqmu.com')">访问官网</el-button>
+                        </div>
+                        <div class="contact-item" style="display:flex;align-items:center;gap:10px;padding:12px;background:#f8f9fa;border-radius:8px;">
+                            <div style="width:40px;height:40px;background:#722ed1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:20px;">👁️</div>
+                            <div style="flex:1;">
+                                <div style="font-weight:600;color:#333;font-size:14px;">百目</div>
+                                <div style="font-size:12px;color:#999;">Java 代码质量评审平台</div>
+                                <div style="font-size:14px;color:#722ed1;">jargus.qqmu.com</div>
+                            </div>
+                            <el-button type="primary" size="small" @click="openLink('https://jargus.qqmu.com')">访问官网</el-button>
+                        </div>
+                        <div class="contact-item" style="display:flex;align-items:center;gap:10px;padding:12px;background:#f8f9fa;border-radius:8px;">
+                            <div style="width:40px;height:40px;background:#fa8c16;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:20px;">🔄</div>
+                            <div style="flex:1;">
+                                <div style="font-weight:600;color:#333;font-size:14px;">捷同</div>
+                                <div style="font-size:12px;color:#999;">异构数据库实时同步</div>
+                                <div style="font-size:14px;color:#fa8c16;">jync.qqmu.com</div>
+                            </div>
+                            <el-button type="primary" size="small" @click="openLink('https://jync.qqmu.com')">访问官网</el-button>
                         </div>
                     </div>
                 </div>
