@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='10' width='48' height='44' rx='6' fill='url(%23g)'/%3E%3Cpath d='M18 40 L28 28 L36 34 L46 20' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <title>扫描转换 - MuOpt 沐优</title>
+    <link rel="stylesheet" href="/libs/element-plus.index.css">
+    <link rel="stylesheet" href="/common.css">
+    <script src="/libs/vue.global.prod.js"></script>
+    <script src="/libs/element-plus.index.full.min.js"></script>
+    <script src="/libs/axios.min.js"></script>
+    <script src="/page-state.js"></script>
+    <script src="/menu-groups.js"></script>
+    <script src="/auth.js"></script>
+    <style>
+        .scan-form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+        .scan-form-row .el-input { flex: 1; min-width: 240px; }
+        .progress-hint { font-size: 13px; color: #999; margin-top: 8px; }
+        .convert-item { border: 1px solid #e8e8e8; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+        .convert-item-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #fafafa; cursor: pointer; flex-wrap: wrap; }
+        .convert-item-head:hover { background: #f0f7ff; }
+        .convert-file { font-family: monospace; font-size: 13px; color: #303133; word-break: break-all; }
+        .convert-body { padding: 12px 14px; border-top: 1px solid #f0f0f0; }
+        .sql-diff-label { font-size: 12px; color: #999; margin: 6px 0 4px; }
+        .sql-block { background: #f6f8fa; border-radius: 6px; padding: 10px 12px; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
+        .sql-block.before { border-left: 3px solid #fa8c16; }
+        .sql-block.after { border-left: 3px solid #52c41a; }
+        .warn-list { margin-top: 12px; padding: 10px 14px; background: #fffbe6; border: 1px solid #ffe58f; border-radius: 8px; font-size: 13px; color: #ad6800; }
+        .warn-list div { margin: 4px 0; word-break: break-all; }
+        @media (max-width: 768px) {
+            .convert-item-head { font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- 左侧菜单 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>MuOpt <span style="font-size:14px;font-weight:normal;">v1.1.0</span></h1>
+                <p>沐优 - SQL优化与信创转换</p>
+            </div>
+            <nav class="menu">
+                <div class="menu-group" data-group="optimize">
+                    <div class="menu-group-title">
+                        <span class="menu-icon">🚀</span><span>SQL 优化</span>
+                        <span class="menu-group-arrow">▾</span>
+                    </div>
+                    <div class="menu-group-items">
+                        <a href="/manual.html" class="menu-item">
+                            <span class="menu-icon">✏️</span><span>手工优化</span>
+                        </a>
+                        <a href="/auto.html" class="menu-item">
+                            <span class="menu-icon">🔍</span><span>扫描优化</span>
+                        </a>
+                    </div>
+                </div>
+                <div class="menu-group" data-group="convert">
+                    <div class="menu-group-title">
+                        <span class="menu-icon">🔄</span><span>SQL 转换</span>
+                        <span class="menu-group-arrow">▾</span>
+                    </div>
+                    <div class="menu-group-items">
+                        <a href="/convert-manual.html" class="menu-item">
+                            <span class="menu-icon">✏️</span><span>手工转换</span>
+                        </a>
+                        <a href="/convert-auto.html" class="menu-item active">
+                            <span class="menu-icon">🔍</span><span>扫描转换</span>
+                        </a>
+                    </div>
+                </div>
+                <a href="/explain.html" class="menu-item">
+                    <span class="menu-icon">📊</span><span>SQL执行计划</span>
+                </a>
+                <a href="/datasource.html" class="menu-item">
+                    <span class="menu-icon">🔗</span><span>数据源配置</span>
+                </a>
+                <a href="/ai.html" class="menu-item">
+                    <span class="menu-icon">🤖</span><span>AI模型配置</span>
+                </a>
+                <a href="/about.html" class="menu-item">
+                    <span class="menu-icon">ℹ️</span><span>关于我们</span>
+                </a>
+                <a href="/profile.html" class="menu-item">
+                    <span class="menu-icon">⚙️</span><span>个人中心</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="user-chip">
+                    <span class="user-avatar">👤</span>
+                    <div class="user-chip-info">
+                        <div class="user-nickname" data-user-nickname>加载中…</div>
+                        <div class="user-account" data-user-account></div>
+                    </div>
+                </div>
+                <a href="javascript:;" class="logout-link js-logout">🚪 退出登录</a>
+            </div>
+        </aside>
+        <!-- 移动端汉堡菜单按钮 -->
+        <div id="mobileMenuBar" style="display:none;justify-content:space-between;align-items:center;width:100%;background:#0f2027;color:white;padding:12px;position:fixed;top:0;left:0;right:0;z-index:1002;">
+            <div style="font-weight:bold;">MuOpt - SQL优化与信创转换</div>
+            <button id="mobileMenuBtn" style="background:none;border:1px solid rgba(255,255,255,0.2);color:white;padding:8px 12px;border-radius:6px;margin-left:auto;">
+                ☰ 菜单
+            </button>
+        </div>
+
+        <!-- 移动端遮罩层 -->
+        <div id="menuOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;"></div>
+
+        <div class="app-container">
+            <main class="main-content">
+                <div class="page-header">
+                    <h2>扫描转换</h2>
+                    <p>扫描项目目录中的 SQL（Java / MyBatis XML / 配置 / .sql 脚本），批量转换为信创数据库方言并可一键写回（自动备份 .bak）</p>
+                </div>
+
+                <div class="content-card">
+                    <div class="form-section">
+                        <div class="form-section-title">项目目录</div>
+                        <div class="scan-form-row">
+                            <el-input v-model="projectPath" placeholder="项目根目录绝对路径，如 /Users/me/my-project" :disabled="scanning"></el-input>
+                            <el-button @click="openDirPicker" :disabled="scanning">📂 浏览</el-button>
+                        </div>
+                    </div>
+                    <div class="form-section">
+                        <div class="form-section-title">目标数据库</div>
+                        <el-select v-model="targetDb" placeholder="选择目标数据库" style="width:100%;max-width:420px;" :disabled="scanning">
+                            <el-option v-for="db in databases" :key="db.code" :label="db.name" :value="db.code"></el-option>
+                        </el-select>
+                    </div>
+                    <div class="form-section">
+                        <div class="form-section-title">AI 方言润色</div>
+                        <div class="switch-wrapper">
+                            <el-switch v-model="enableAi" :disabled="scanning"></el-switch>
+                            <span class="switch-label">规则转换后再用 AI 润色一轮（需在「AI 模型」页启用模型；含 MyBatis 占位符/动态标签的片段自动跳过保护）</span>
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <el-button type="primary" size="large" @click="startScan" :loading="scanning">
+                            🔍 开始扫描
+                        </el-button>
+                        <el-button size="large" @click="clearAll" :disabled="scanning">清空</el-button>
+                    </div>
+                    <div v-if="scanning" style="margin-top:16px;">
+                        <el-progress :percentage="progress" :stroke-width="14" striped striped-flow></el-progress>
+                        <div class="progress-hint">
+                            <span v-if="phase === 'optimizing'">🤖 AI 润色中 {{ aiDone }}/{{ aiTotal }}（已应用 {{ aiApplied }}，失败/拒绝 {{ aiFailed }}）…</span>
+                            <span v-else>📂 正在扫描项目文件…</span>
+                            可以放心切换到其他页面，任务在服务端执行，回来自动继续
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 扫描结果 -->
+                <div v-if="done" class="content-card">
+                    <div class="result-header" style="margin-bottom:14px;">
+                        <span class="result-title">
+                            扫描结果：共 {{ items.length }} 条待转换 SQL
+                            <el-tag v-if="aiApplied > 0" size="small" type="success" style="margin-left:8px;">AI 润色 {{ aiApplied }} 条</el-tag>
+                        </span>
+                        <el-button v-if="items.length > 0" type="danger" size="small" @click="confirmReplace" :loading="replacing">
+                            🚀 一键改造（写回源文件）
+                        </el-button>
+                    </div>
+
+                    <div v-if="aiMessage" class="warn-list" style="margin-bottom:12px;"><div>💡 {{ aiMessage }}</div></div>
+
+                    <div v-if="items.length === 0" class="empty-state" style="padding:24px;">
+                        <div class="empty-icon">🎉</div>
+                        <div>未发现需要转换的 SQL，项目可能已兼容目标数据库</div>
+                    </div>
+
+                    <div v-for="(item, i) in items" :key="i" class="convert-item">
+                        <div class="convert-item-head" @click="toggleExpand(i)">
+                            <span>{{ expanded[i] ? '▼' : '▶' }}</span>
+                            <span class="convert-file">{{ item.filePath }}:{{ item.lineNumber }}</span>
+                            <el-tag size="small" type="warning">{{ item.conversionType }}</el-tag>
+                            <el-tag v-if="item.aiOptimized" size="small" type="success">AI 润色</el-tag>
+                        </div>
+                        <div v-if="expanded[i]" class="convert-body">
+                            <div class="sql-diff-label">原始 SQL：</div>
+                            <div class="sql-block before">{{ item.sourceSql }}</div>
+                            <div class="sql-diff-label" style="margin-top:10px;">转换后（{{ dbName(targetDb) }}）：</div>
+                            <div class="sql-block after">{{ item.targetSql }}</div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- 目录选择对话框 -->
+        <el-dialog v-model="dirDialogVisible" title="选择项目目录" width="560px">
+            <div style="margin-bottom:10px;font-size:13px;color:#666;word-break:break-all;">
+                当前：{{ dirCurrent || '加载中…' }}
+            </div>
+            <div style="max-height:320px;overflow:auto;border:1px solid #e8e8e8;border-radius:8px;">
+                <div v-if="dirParent" class="convert-item-head" @click="loadDirs(dirParent)">
+                    <span>⬆️</span><span>..（上级目录）</span>
+                </div>
+                <div v-for="d in dirList" :key="d.path" class="convert-item-head" @click="loadDirs(d.path)">
+                    <span>📁</span><span>{{ d.name }}</span>
+                </div>
+                <div v-if="!dirParent && dirList.length === 0" style="padding:20px;text-align:center;color:#999;">
+                    没有可进入的子目录
+                </div>
+            </div>
+            <template #footer>
+                <el-button @click="dirDialogVisible = false">取消</el-button>
+                <el-button type="primary" @click="chooseCurrentDir">选择当前目录</el-button>
+            </template>
+        </el-dialog>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted, watch } = Vue;
+
+        createApp({
+            setup() {
+                const saved = PageState.get('convert-auto') || {};
+                const projectPath = ref(saved.projectPath || '');
+                const targetDb = ref(saved.targetDb || 'dameng');
+                const enableAi = ref(!!saved.enableAi);
+                const scanning = ref(false);
+                const progress = ref(0);
+                const phase = ref('scanning');
+                const aiTotal = ref(0);
+                const aiDone = ref(0);
+                const aiApplied = ref(0);
+                const aiFailed = ref(0);
+                const aiMessage = ref('');
+                const done = ref(false);
+                const items = ref([]);
+                const expanded = ref({});
+                const replacing = ref(false);
+                const databases = ref([]);
+                const taskId = ref('');
+
+                // 目录选择器
+                const dirDialogVisible = ref(false);
+                const dirCurrent = ref('');
+                const dirParent = ref('');
+                const dirList = ref([]);
+
+                const persist = () => PageState.set('convert-auto', {
+                    projectPath: projectPath.value, targetDb: targetDb.value,
+                    enableAi: enableAi.value, savedAt: Date.now()
+                });
+                watch([projectPath, targetDb, enableAi], persist);
+
+                const TASK_KEY = 'convert-auto-task';
+                const POLL_INTERVAL = 1500;
+                let pollTimer = null;
+                let pollGeneration = 0;
+
+                const fetchDatabases = async () => {
+                    try {
+                        const resp = await axios.get('/api/convert/databases');
+                        if (resp.data.code === 200) databases.value = resp.data.data || [];
+                    } catch (e) { /* 忽略 */ }
+                    try {
+                        const resp = await axios.get('/api/datasource/status');
+                        if (resp.data.code === 200 && resp.data.data && resp.data.data.config) {
+                            const dbType = (resp.data.data.config.dbType || '').toLowerCase();
+                            if (!saved.targetDb && databases.value.some(d => d.code === dbType)) {
+                                targetDb.value = dbType;
+                            }
+                        }
+                    } catch (e) { /* 忽略 */ }
+                };
+
+                const dbName = (code) => {
+                    const hit = databases.value.find(d => d.code === code);
+                    return hit ? hit.name : code;
+                };
+
+                const stopPolling = () => {
+                    pollGeneration++;
+                    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+                };
+
+                const startPolling = (id) => {
+                    stopPolling();
+                    const my = ++pollGeneration;
+                    scanning.value = true;
+                    taskId.value = id;
+
+                    const tick = async () => {
+                        if (my !== pollGeneration) return;
+                        let data;
+                        try {
+                            const resp = await axios.get('/api/convert/scan/progress', { params: { taskId: id } });
+                            if (my !== pollGeneration) return;
+                            if (resp.data.code === 404) {
+                                finish();
+                                ElementPlus.ElMessage.warning('上次的扫描任务已不存在（服务可能重启过），请重新扫描');
+                                return;
+                            }
+                            data = resp.data.data;
+                        } catch (e) {
+                            if (my !== pollGeneration) return;
+                            pollTimer = setTimeout(tick, POLL_INTERVAL * 2);
+                            return;
+                        }
+
+                        progress.value = data.progress || 0;
+                        phase.value = data.phase || 'scanning';
+                        aiTotal.value = data.aiTotal || 0;
+                        aiDone.value = data.aiDone || 0;
+                        aiApplied.value = data.aiApplied || 0;
+                        aiFailed.value = data.aiFailed || 0;
+
+                        if (data.status === 'running') {
+                            pollTimer = setTimeout(tick, POLL_INTERVAL);
+                            return;
+                        }
+
+                        // 完成或失败
+                        finish();
+                        if (data.status === 'completed') {
+                            items.value = data.items || [];
+                            aiMessage.value = data.aiMessage || '';
+                            aiApplied.value = data.aiApplied || 0;
+                            done.value = true;
+                            expanded.value = {};
+                            ElementPlus.ElMessage.success(`扫描完成，发现 ${items.value.length} 条待转换 SQL`);
+                        } else {
+                            ElementPlus.ElMessage.error('扫描失败，请检查目录后重试');
+                        }
+                    };
+
+                    const finish = () => {
+                        stopPolling();
+                        scanning.value = false;
+                        PageState.remove(TASK_KEY);
+                    };
+                    pollTimer = setTimeout(tick, 400);
+                };
+
+                const startScan = async () => {
+                    if (!projectPath.value.trim()) {
+                        ElementPlus.ElMessage.warning('请输入项目目录');
+                        return;
+                    }
+                    if (!targetDb.value) {
+                        ElementPlus.ElMessage.warning('请选择目标数据库');
+                        return;
+                    }
+                    if (scanning.value) return;
+                    done.value = false;
+                    items.value = [];
+                    progress.value = 0;
+                    try {
+                        const resp = await axios.post('/api/convert/scan', {
+                            path: projectPath.value.trim(),
+                            targetDb: targetDb.value,
+                            enableAi: enableAi.value
+                        });
+                        if (resp.data.code === 200) {
+                            const id = resp.data.data.taskId;
+                            PageState.set(TASK_KEY, { taskId: id });
+                            startPolling(id);
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '启动扫描失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('启动扫描失败: ' + (e.response?.data?.message || e.message));
+                    }
+                };
+
+                const toggleExpand = (i) => {
+                    expanded.value = { ...expanded.value, [i]: !expanded.value[i] };
+                };
+
+                const confirmReplace = async () => {
+                    try {
+                        await ElementPlus.ElMessageBox.confirm(
+                            `即将把 ${items.value.length} 条转换结果写回源文件。每个被修改的文件会先创建 .bak 备份（已存在则不覆盖）。确定继续吗？`,
+                            '一键改造确认',
+                            { confirmButtonText: '确定写回', cancelButtonText: '取消', type: 'warning' }
+                        );
+                    } catch (e) {
+                        return;
+                    }
+                    if (!taskId.value) {
+                        ElementPlus.ElMessage.warning('任务信息已丢失（服务可能重启过），请重新扫描后再改造');
+                        return;
+                    }
+                    replacing.value = true;
+                    try {
+                        const resp = await axios.post('/api/convert/replace', { taskId: taskId.value });
+                        if (resp.data.code === 200) {
+                            const r = resp.data.data;
+                            ElementPlus.ElMessage.success(
+                                `改造完成：${r.successFiles} 个文件写入 ${r.totalReplacements} 处` +
+                                (r.unmatchedItems ? `，${r.unmatchedItems} 条未定位已跳过` : ''));
+                            if (r.warnings && r.warnings.length) {
+                                aiMessage.value = r.warnings.join('；');
+                            }
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '改造失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('改造失败: ' + (e.response?.data?.message || e.message));
+                    } finally {
+                        replacing.value = false;
+                    }
+                };
+
+                // ---- 目录选择器 ----
+                const loadDirs = async (path) => {
+                    try {
+                        const resp = await axios.get('/api/convert/dirs', { params: { path } });
+                        if (resp.data.code === 200) {
+                            dirCurrent.value = resp.data.data.currentPath;
+                            dirParent.value = resp.data.data.parentPath;
+                            dirList.value = resp.data.data.directories || [];
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '读取目录失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('读取目录失败: ' + (e.response?.data?.message || e.message));
+                    }
+                };
+                const openDirPicker = () => {
+                    dirDialogVisible.value = true;
+                    loadDirs(projectPath.value.trim() || undefined);
+                };
+                const chooseCurrentDir = () => {
+                    if (dirCurrent.value) {
+                        projectPath.value = dirCurrent.value;
+                    }
+                    dirDialogVisible.value = false;
+                };
+
+                const clearAll = () => {
+                    stopPolling();
+                    scanning.value = false;
+                    done.value = false;
+                    items.value = [];
+                    progress.value = 0;
+                    taskId.value = '';
+                    PageState.remove(TASK_KEY);
+                    PageState.remove('convert-auto');
+                };
+
+                onMounted(() => {
+                    fetchDatabases();
+                    // 切菜单/刷新回来：若上次扫描仍在服务端执行，恢复等待状态继续轮询
+                    const savedTask = PageState.get(TASK_KEY);
+                    if (savedTask && savedTask.taskId) {
+                        startPolling(savedTask.taskId);
+                    }
+
+                    // 移动端菜单控制
+                    const menuBtn = document.getElementById('mobileMenuBtn');
+                    const sidebar = document.querySelector('.sidebar');
+                    const overlay = document.getElementById('menuOverlay');
+                    if (menuBtn && sidebar && overlay) {
+                        const setMenu = (open) => {
+                            sidebar.classList.toggle('mobile-open', open);
+                            overlay.style.display = open ? 'block' : 'none';
+                            menuBtn.innerHTML = open ? '✕ 关闭' : '☰ 菜单';
+                        };
+                        menuBtn.addEventListener('click', () => setMenu(!sidebar.classList.contains('mobile-open')));
+                        overlay.addEventListener('click', () => setMenu(false));
+                        sidebar.querySelectorAll('.menu-item').forEach(a =>
+                            a.addEventListener('click', () => setMenu(false)));
+                    }
+                });
+
+                return { projectPath, targetDb, enableAi, scanning, progress, phase,
+                    aiTotal, aiDone, aiApplied, aiFailed, aiMessage,
+                    done, items, expanded, replacing, databases,
+                    dirDialogVisible, dirCurrent, dirParent, dirList,
+                    startScan, toggleExpand, confirmReplace, dbName,
+                    openDirPicker, loadDirs, chooseCurrentDir, clearAll };
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html>

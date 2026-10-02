@@ -1,5 +1,5 @@
 server:
-  port: 8090
+  port: 8080
   # 本工具可浏览服务器目录并原地改写源文件，默认只监听本机回环地址。
   # 如确需局域网访问，请自行改为 0.0.0.0 并在前置网关上加鉴权。
   address: 127.0.0.1
@@ -28,6 +28,8 @@ spring:
 
 # 数据库密码 / AI API Key 落库加密口令（生产环境请通过环境变量覆盖）
 app:
+  # 当前版本号：与 pom.xml 的 <version> 保持一致，用于「关于我们」判断是否有新版可更新
+  version: ${APP_VERSION:1.1.0}
   # 配置库目录（数据库连接、AI 模型都保存在这里），默认 ./data，可用 APP_DATA_DIR 覆盖为绝对路径
   data:
     dir: ${APP_DATA_DIR:./data}

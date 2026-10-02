@@ -81,9 +81,42 @@ public class AiChatClient {
      */
     public ChatResult complete(AiProvider provider, String apiKey, String system, String user,
                                int maxTokens, Long overrideTimeoutSeconds) {
+        return complete(provider, apiKey, system, user, maxTokens, overrideTimeoutSeconds, false);
+    }
+
+    /**
+     * 发送一次补全请求并等待完整回复。
+     *
+     * @param thinkingOff SQL 改写 / 方言润色类任务置 true：关闭推理模型的思考链，
+     *                    使 {@code max_tokens} 全部留给最终输出，避免思考链吃掉预算导致 SQL
+     *                    被截断（finish_reason=length）或思考过长拖慢到超时。
+     */
+    public ChatResult complete(AiProvider provider, String apiKey, String system, String user,
+                               int maxTokens, Long overrideTimeoutSeconds, boolean thinkingOff) {
+        AiProtocol protocol = provider.getProtocol() == null ? AiProtocol.OPENAI : provider.getProtocol();
+        String model = provider.getModel() == null ? "" : provider.getModel().trim();
+        return execute(provider, apiKey, model,
+                buildTextBody(protocol, model, system, user, maxTokens, thinkingOff), overrideTimeoutSeconds);
+    }
+
+    /**
+     * 发送一次多模态（图片 + 文本）请求，用于 OCR 识别截图中的 SQL。
+     * model 由调用方指定（视觉模型常与文本模型不同），空串时回退到配置的主模型。
+     */
+    public ChatResult completeWithImage(AiProvider provider, String apiKey, String model,
+                                        byte[] imageData, String mimeType, String prompt, int maxTokens) {
+        AiProtocol protocol = provider.getProtocol() == null ? AiProtocol.OPENAI : provider.getProtocol();
+        String effective = model == null || model.isBlank()
+                ? (provider.getModel() == null ? "" : provider.getModel().trim()) : model.trim();
+        return execute(provider, apiKey, effective,
+                buildVisionBody(protocol, effective, imageData, mimeType, prompt, maxTokens), null);
+    }
+
+    /** 发送已构建好的请求体并解析响应；协议差异在 body 构建阶段已抹平 */
+    private ChatResult execute(AiProvider provider, String apiKey, String model, ObjectNode body,
+                               Long overrideTimeoutSeconds) {
         AiProtocol protocol = provider.getProtocol() == null ? AiProtocol.OPENAI : provider.getProtocol();
         String endpoint = protocol.resolveEndpoint(provider.getBaseUrl());
-        String model = provider.getModel() == null ? "" : provider.getModel().trim();
         long start = System.currentTimeMillis();
 
         if (model.isEmpty()) {
@@ -110,15 +143,15 @@ public class AiChatClient {
             }
             HttpClient client = builder.build();
 
-            HttpRequest request = buildRequest(protocol, endpoint, model, apiKey, requestTimeout,
-                    system, user, maxTokens);
+            HttpRequest request = toRequest(protocol, endpoint, apiKey, requestTimeout, body);
             HttpResponse<String> response =
                     client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             long ms = System.currentTimeMillis() - start;
 
             if (response.statusCode() / 100 == 2) {
                 return ChatResult.success(extractText(protocol, response.body()),
-                        servedModel(response.body()), endpoint, model, ms);
+                        servedModel(response.body()), endpoint, model, ms,
+                        isTruncated(protocol, response.body()));
             }
             String detail = extractError(response.body());
             log.warn("AI 请求 '{}' 失败: HTTP {} {}",
@@ -211,7 +244,8 @@ public class AiChatClient {
             if (proxyUri.getUserInfo() != null) {
                 log.warn("AI 代理地址中包含账号密码，当前暂不支持代理认证，已忽略凭据部分");
             }
-            log.debug("AI 请求 {} 走代理 {}:{}", host, proxyUri.getHost(), proxyUri.getPort());
+            // 代理慢或代理软件没开时，每次 AI 请求都会先卡连接阶段——升 info 便于排查「为什么慢」
+            log.info("AI 请求 {} 走代理 {}:{}", host, proxyUri.getHost(), proxyUri.getPort());
             return ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), proxyUri.getPort()));
         } catch (RuntimeException e) {
             log.warn("AI 代理配置无效 {}: {}", spec, e.getMessage());
@@ -219,18 +253,23 @@ public class AiChatClient {
         }
     }
 
-    private HttpRequest buildRequest(AiProtocol protocol, String endpoint, String model,
-                                     String apiKey, Duration timeout,
-                                     String system, String user, int maxTokens) {
+    /**
+     * 纯文本对话请求体。
+     * Anthropic 把 system 作为顶层字段，且拒绝消息列表里出现 system 角色；
+     * OpenAI 兼容端点则期望它作为第一条消息。
+     */
+    private ObjectNode buildTextBody(AiProtocol protocol, String model,
+                                     String system, String user, int maxTokens, boolean thinkingOff) {
         ObjectNode body = mapper.createObjectNode();
         body.put("model", model);
         body.put("max_tokens", maxTokens);
+        if (thinkingOff) {
+            applyDisabledThinking(body, protocol);
+        }
 
         boolean anthropic = protocol == AiProtocol.ANTHROPIC;
         boolean hasSystem = system != null && !system.isBlank();
 
-        // Anthropic 把 system 作为顶层字段，且拒绝消息列表里出现 system 角色；
-        // OpenAI 兼容端点则期望它作为第一条消息。
         if (hasSystem && anthropic) {
             body.put("system", system);
         }
@@ -243,14 +282,66 @@ public class AiChatClient {
         ObjectNode userMessage = messages.addObject();
         userMessage.put("role", "user");
         userMessage.put("content", user);
+        return body;
+    }
 
+    /**
+     * 关闭推理模型的思考链。输出契约（只回 SQL、不要分析过程）本就排斥思考链，
+     * 关掉后 max_tokens 全额留给最终输出，从根上消除「思考链吃掉预算导致截断 / 拖慢超时」。
+     *
+     * <p>Anthropic 的 {@code thinking:{type:"disabled"}} 是官方字段，兼容端点普遍支持；
+     * OpenAI 兼容端点无统一参数，同时下发 {@code enable_thinking:false}（Qwen/GLM/Kimi 等）
+     * 与 {@code thinking:{type:"disabled"}}（火山方舟），两者都不认识的端点会静默忽略未知字段，
+     * 不影响非推理模型正常作答。
+     */
+    private void applyDisabledThinking(ObjectNode body, AiProtocol protocol) {
+        ObjectNode thinking = body.putObject("thinking");
+        thinking.put("type", "disabled");
+        if (protocol != AiProtocol.ANTHROPIC) {
+            body.put("enable_thinking", false);
+        }
+    }
+
+    /** 图片 + 文本请求体：OpenAI 兼容用 image_url data-url，Anthropic 用 base64 source 块 */
+    private ObjectNode buildVisionBody(AiProtocol protocol, String model, byte[] imageData,
+                                       String mimeType, String prompt, int maxTokens) {
+        String base64 = java.util.Base64.getEncoder().encodeToString(imageData);
+        ObjectNode body = mapper.createObjectNode();
+        body.put("model", model);
+        body.put("max_tokens", maxTokens);
+
+        ArrayNode messages = body.putArray("messages");
+        ObjectNode message = messages.addObject();
+        message.put("role", "user");
+        ArrayNode content = message.putArray("content");
+
+        if (protocol == AiProtocol.ANTHROPIC) {
+            ObjectNode image = content.addObject();
+            image.put("type", "image");
+            ObjectNode source = image.putObject("source");
+            source.put("type", "base64");
+            source.put("media_type", mimeType);
+            source.put("data", base64);
+        } else {
+            ObjectNode image = content.addObject();
+            image.put("type", "image_url");
+            image.putObject("image_url").put("url", "data:" + mimeType + ";base64," + base64);
+        }
+        ObjectNode text = content.addObject();
+        text.put("type", "text");
+        text.put("text", prompt);
+        return body;
+    }
+
+    private HttpRequest toRequest(AiProtocol protocol, String endpoint, String apiKey,
+                                  Duration timeout, ObjectNode body) {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(endpoint))
                 .timeout(timeout)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json");
 
-        if (anthropic) {
+        if (protocol == AiProtocol.ANTHROPIC) {
             builder.header("x-api-key", apiKey == null ? "" : apiKey)
                     .header("anthropic-version", ANTHROPIC_VERSION);
         } else {
@@ -292,6 +383,22 @@ public class AiChatClient {
             return mapper.readTree(responseBody).path("model").asText("");
         } catch (IOException e) {
             return "";
+        }
+    }
+
+    /**
+     * 输出是否因 token 预算耗尽被截断（OpenAI: finish_reason=length；
+     * Anthropic: stop_reason=max_tokens）。截断的 SQL 是半成品，上层应降级而非直接使用。
+     */
+    private boolean isTruncated(AiProtocol protocol, String responseBody) {
+        try {
+            JsonNode root = mapper.readTree(responseBody);
+            if (protocol == AiProtocol.ANTHROPIC) {
+                return "max_tokens".equals(root.path("stop_reason").asText(""));
+            }
+            return "length".equals(root.path("choices").path(0).path("finish_reason").asText(""));
+        } catch (IOException e) {
+            return false;
         }
     }
 
@@ -337,9 +444,11 @@ public class AiChatClient {
         private final String servedModel;
         private final String requestedModel;
         private final long elapsedMs;
+        /** 输出是否因 token 预算耗尽被截断 */
+        private final boolean truncated;
 
         private ChatResult(boolean success, String text, String message, String endpoint,
-                           String servedModel, String requestedModel, long ms) {
+                           String servedModel, String requestedModel, long ms, boolean truncated) {
             this.success = success;
             this.text = text;
             this.message = message;
@@ -347,15 +456,16 @@ public class AiChatClient {
             this.servedModel = servedModel;
             this.requestedModel = requestedModel;
             this.elapsedMs = ms;
+            this.truncated = truncated;
         }
 
         static ChatResult success(String text, String servedModel, String endpoint,
-                                  String requestedModel, long ms) {
-            return new ChatResult(true, text, "OK", endpoint, servedModel, requestedModel, ms);
+                                  String requestedModel, long ms, boolean truncated) {
+            return new ChatResult(true, text, "OK", endpoint, servedModel, requestedModel, ms, truncated);
         }
 
         static ChatResult failure(String message, String endpoint, String requestedModel, long ms) {
-            return new ChatResult(false, "", message, endpoint, "", requestedModel, ms);
+            return new ChatResult(false, "", message, endpoint, "", requestedModel, ms, false);
         }
 
         /** 优先用端点声明的模型，未声明时回退到请求模型 */

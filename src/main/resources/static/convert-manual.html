@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='10' width='48' height='44' rx='6' fill='url(%23g)'/%3E%3Cpath d='M18 40 L28 28 L36 34 L46 20' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <title>手工转换 - MuOpt 沐优</title>
+    <link rel="stylesheet" href="/libs/element-plus.index.css">
+    <link rel="stylesheet" href="/common.css">
+    <script src="/libs/vue.global.prod.js"></script>
+    <script src="/libs/element-plus.index.full.min.js"></script>
+    <script src="/libs/axios.min.js"></script>
+    <script src="/page-state.js"></script>
+    <script src="/menu-groups.js"></script>
+    <script src="/auth.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- 左侧菜单 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>MuOpt <span style="font-size:14px;font-weight:normal;">v1.1.0</span></h1>
+                <p>沐优 - SQL优化与信创转换</p>
+            </div>
+            <nav class="menu">
+                <div class="menu-group" data-group="optimize">
+                    <div class="menu-group-title">
+                        <span class="menu-icon">🚀</span><span>SQL 优化</span>
+                        <span class="menu-group-arrow">▾</span>
+                    </div>
+                    <div class="menu-group-items">
+                        <a href="/manual.html" class="menu-item">
+                            <span class="menu-icon">✏️</span><span>手工优化</span>
+                        </a>
+                        <a href="/auto.html" class="menu-item">
+                            <span class="menu-icon">🔍</span><span>扫描优化</span>
+                        </a>
+                    </div>
+                </div>
+                <div class="menu-group" data-group="convert">
+                    <div class="menu-group-title">
+                        <span class="menu-icon">🔄</span><span>SQL 转换</span>
+                        <span class="menu-group-arrow">▾</span>
+                    </div>
+                    <div class="menu-group-items">
+                        <a href="/convert-manual.html" class="menu-item active">
+                            <span class="menu-icon">✏️</span><span>手工转换</span>
+                        </a>
+                        <a href="/convert-auto.html" class="menu-item">
+                            <span class="menu-icon">🔍</span><span>扫描转换</span>
+                        </a>
+                    </div>
+                </div>
+                <a href="/explain.html" class="menu-item">
+                    <span class="menu-icon">📊</span><span>SQL执行计划</span>
+                </a>
+                <a href="/datasource.html" class="menu-item">
+                    <span class="menu-icon">🔗</span><span>数据源配置</span>
+                </a>
+                <a href="/ai.html" class="menu-item">
+                    <span class="menu-icon">🤖</span><span>AI模型配置</span>
+                </a>
+                <a href="/about.html" class="menu-item">
+                    <span class="menu-icon">ℹ️</span><span>关于我们</span>
+                </a>
+                <a href="/profile.html" class="menu-item">
+                    <span class="menu-icon">⚙️</span><span>个人中心</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="user-chip">
+                    <span class="user-avatar">👤</span>
+                    <div class="user-chip-info">
+                        <div class="user-nickname" data-user-nickname>加载中…</div>
+                        <div class="user-account" data-user-account></div>
+                    </div>
+                </div>
+                <a href="javascript:;" class="logout-link js-logout">🚪 退出登录</a>
+            </div>
+        </aside>
+        <!-- 移动端汉堡菜单按钮 -->
+        <div id="mobileMenuBar" style="display:none;justify-content:space-between;align-items:center;width:100%;background:#0f2027;color:white;padding:12px;position:fixed;top:0;left:0;right:0;z-index:1002;">
+            <div style="font-weight:bold;">MuOpt - SQL优化与信创转换</div>
+            <button id="mobileMenuBtn" style="background:none;border:1px solid rgba(255,255,255,0.2);color:white;padding:8px 12px;border-radius:6px;margin-left:auto;">
+                ☰ 菜单
+            </button>
+        </div>
+
+        <!-- 移动端遮罩层 -->
+        <div id="menuOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;"></div>
+
+        <div class="app-container">
+            <main class="main-content">
+                <div class="page-header">
+                    <h2>手工转换</h2>
+                    <p>粘贴单条 SQL，转换为目标信创数据库方言；可拍照/截图 OCR 识别 SQL</p>
+                </div>
+
+                <div class="content-card">
+                    <!-- 目标数据库 -->
+                    <div class="form-section">
+                        <div class="form-section-title">目标数据库</div>
+                        <el-select v-model="targetDb" placeholder="选择目标数据库" style="width:100%;max-width:420px;" :disabled="loading">
+                            <el-option v-for="db in databases" :key="db.code" :label="db.name" :value="db.code"></el-option>
+                        </el-select>
+                    </div>
+
+                    <!-- SQL 输入 -->
+                    <div class="form-section">
+                        <div class="form-section-title">
+                            SQL 输入
+                            <el-button size="small" text type="primary" @click="triggerOcr" :loading="ocrLoading" style="margin-left:10px;">
+                                📷 图片识别 SQL
+                            </el-button>
+                            <input ref="ocrInput" type="file" accept="image/*" style="display:none;" @change="doOcr">
+                        </div>
+                        <el-input
+                            v-model="sql"
+                            type="textarea"
+                            :rows="8"
+                            :disabled="loading"
+                            placeholder="请输入或粘贴要转换的 SQL，例如：&#10;SELECT IFNULL(u.name, '未知'), DATE_FORMAT(o.create_time, '%Y-%m-%d') FROM orders o JOIN users u ON o.user_id = u.id LIMIT 10;"
+                        ></el-input>
+                    </div>
+
+                    <div class="button-group">
+                        <el-button type="primary" size="large" @click="doConvert(false)" :loading="loading && !polishing">
+                            🔄 规则转换
+                        </el-button>
+                        <el-button type="success" size="large" @click="doConvert(true)" :loading="loading && polishing">
+                            ✨ AI 润色转换
+                        </el-button>
+                        <el-button size="large" @click="clearAll" :disabled="loading">清空</el-button>
+                        <span v-if="loading && polishing" style="font-size:13px;color:#999;align-self:center;">
+                            🔄 AI 润色中（已等待 {{ waitingSec }} 秒）：可以放心切换到其他页面，任务在服务端执行，回来自动继续
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 转换结果 -->
+                <div v-if="result" class="content-card">
+                    <div class="result-area">
+                        <div class="result-header">
+                            <span class="result-title">
+                                转换后的 SQL（{{ dbName(result.targetDb) }}）
+                                <el-tag v-if="result.optimized" size="small" type="success" style="margin-left:8px;">AI 润色</el-tag>
+                                <el-tag v-else size="small" type="info" style="margin-left:8px;">规则转换</el-tag>
+                            </span>
+                            <el-button type="primary" size="small" @click="copyText(result.convertedSql)">📋 复制</el-button>
+                        </div>
+                        <div class="result-content">{{ result.convertedSql }}</div>
+                    </div>
+                    <ul class="tips-list" style="margin-top:14px;">
+                        <li v-if="!result.optimized">💡 规则转换为确定性改写（函数 / 类型 / 分页语法映射）。如需 AI 二次把关方言细节与性能，点击「✨ AI 润色转换」（需在「AI 模型」页启用模型）。</li>
+                        <li>⚠️ 转换结果请在目标库实际执行验证后再上线，复杂语法（存储过程、分析函数）建议人工复核。</li>
+                    </ul>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted, watch } = Vue;
+
+        createApp({
+            setup() {
+                // 从 sessionStorage 恢复：菜单跳转/F5 后输入与上次结果不丢失
+                const saved = PageState.get('convert-manual') || {};
+                const sql = ref(saved.sql || '');
+                const targetDb = ref(saved.targetDb || 'dameng');
+                const result = ref(saved.result || null);
+                const loading = ref(false);
+                const polishing = ref(false);
+                const waitingSec = ref(0);
+                const ocrLoading = ref(false);
+                const ocrInput = ref(null);
+                const databases = ref([]);
+
+                const persist = () => PageState.set('convert-manual', {
+                    sql: sql.value, targetDb: targetDb.value,
+                    result: result.value, savedAt: Date.now()
+                });
+                watch([sql, targetDb], persist);
+
+                const fetchDatabases = async () => {
+                    try {
+                        const resp = await axios.get('/api/convert/databases');
+                        if (resp.data.code === 200) {
+                            databases.value = resp.data.data || [];
+                        }
+                    } catch (e) { /* 忽略 */ }
+                    // 默认目标库跟随已启用的数据源类型（信创迁移的典型场景：目标库就是新数据源）
+                    try {
+                        const resp = await axios.get('/api/datasource/status');
+                        if (resp.data.code === 200 && resp.data.data && resp.data.data.config) {
+                            const dbType = (resp.data.data.config.dbType || '').toLowerCase();
+                            if (!saved.targetDb && databases.value.some(d => d.code === dbType)) {
+                                targetDb.value = dbType;
+                            }
+                        }
+                    } catch (e) { /* 忽略 */ }
+                };
+
+                const dbName = (code) => {
+                    const hit = databases.value.find(d => d.code === code);
+                    return hit ? hit.name : code;
+                };
+
+                // ---- 异步 AI 润色任务 ----
+                // 与扫描转换/手工优化同理：润色在服务端后台执行，与浏览器连接无关。
+                // jobId 存入 sessionStorage，切菜单/F5 回来后凭它继续轮询，
+                // 不再出现「请求随页面销毁被掐断、按钮一直转圈、结果丢失」。
+                const JOB_KEY = 'convert-manual-job';
+                const POLL_INTERVAL = 1200;
+                const MAX_POLL_MILLIS = 5 * 60 * 1000; // 前端最长轮询 5 分钟，服务端任务不受影响
+                let pollTimer = null;
+                let pollGeneration = 0;
+
+                const stopPolling = () => {
+                    pollGeneration++;
+                    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+                };
+
+                const startPolling = (jobId, beganAt) => {
+                    stopPolling();
+                    const my = ++pollGeneration;
+                    const deadlineAt = beganAt + MAX_POLL_MILLIS;
+                    loading.value = true;
+                    polishing.value = true;
+
+                    const finish = () => {
+                        stopPolling();
+                        loading.value = false;
+                        polishing.value = false;
+                        waitingSec.value = 0;
+                        PageState.remove(JOB_KEY);
+                    };
+
+                    const tick = async () => {
+                        if (my !== pollGeneration) return;
+                        waitingSec.value = Math.max(0, Math.round((Date.now() - beganAt) / 1000));
+                        let job;
+                        try {
+                            const resp = await axios.get(`/api/convert/polish/jobs/${jobId}`);
+                            if (my !== pollGeneration) return;
+                            if (resp.data.code === 404) {
+                                finish();
+                                ElementPlus.ElMessage.warning('上次的润色任务已不存在（服务可能重启过），请重新转换');
+                                return;
+                            }
+                            job = resp.data.data;
+                        } catch (e) {
+                            if (my !== pollGeneration) return;
+                            if (Date.now() < deadlineAt) {
+                                pollTimer = setTimeout(tick, POLL_INTERVAL * 2);
+                            } else {
+                                finish();
+                                ElementPlus.ElMessage.error('轮询润色状态超时，请稍后重新进入本页查看结果');
+                            }
+                            return;
+                        }
+
+                        if (job.status === 'RUNNING') {
+                            if (Date.now() > deadlineAt) {
+                                finish();
+                                ElementPlus.ElMessage.error('润色超过 5 分钟仍未结束，已停止页面等待；服务端任务可能仍在执行，可重新进入页面查看');
+                                return;
+                            }
+                            pollTimer = setTimeout(tick, POLL_INTERVAL);
+                            return;
+                        }
+
+                        if (job.status === 'SUCCESS') {
+                            result.value = job.result;
+                            persist();
+                            const secs = job.finishedAt && job.startedAt
+                                ? ((job.finishedAt - job.startedAt) / 1000).toFixed(1) : '';
+                            ElementPlus.ElMessage.success(`AI 润色完成${secs ? '，后台耗时 ' + secs + ' 秒' : ''}`);
+                        } else if (job.status === 'CANCELLED') {
+                            ElementPlus.ElMessage.info('已取消润色');
+                        } else {
+                            ElementPlus.ElMessage.error(job.message || '润色失败');
+                        }
+                        finish();
+                    };
+                    pollTimer = setTimeout(tick, 500);
+                };
+
+                const doConvert = async (withAi) => {
+                    if (!sql.value.trim()) {
+                        ElementPlus.ElMessage.warning('请输入 SQL 语句');
+                        return;
+                    }
+                    if (!targetDb.value) {
+                        ElementPlus.ElMessage.warning('请选择目标数据库');
+                        return;
+                    }
+                    if (loading.value) return;
+
+                    // AI 润色走后台任务 + 轮询；规则转换毫秒级，保持同步即可
+                    if (withAi) {
+                        try {
+                            const resp = await axios.post('/api/convert/polish/start', {
+                                sourceSql: sql.value,
+                                targetDb: targetDb.value
+                            });
+                            if (resp.data.code === 200) {
+                                const beganAt = Date.now();
+                                PageState.set(JOB_KEY, { jobId: resp.data.data.jobId, beganAt });
+                                startPolling(resp.data.data.jobId, beganAt);
+                            } else {
+                                ElementPlus.ElMessage.error(resp.data.message || '启动润色失败');
+                            }
+                        } catch (e) {
+                            ElementPlus.ElMessage.error('启动润色失败: ' + (e.response?.data?.message || e.message));
+                        }
+                        return;
+                    }
+
+                    loading.value = true;
+                    polishing.value = false;
+                    try {
+                        const resp = await axios.post('/api/convert', {
+                            sourceSql: sql.value,
+                            targetDb: targetDb.value
+                        });
+                        if (resp.data.code === 200) {
+                            result.value = resp.data.data;
+                            persist();
+                            ElementPlus.ElMessage.success('转换完成');
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '转换失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('转换失败: ' + (e.response?.data?.message || e.message));
+                    } finally {
+                        loading.value = false;
+                        polishing.value = false;
+                    }
+                };
+
+                const triggerOcr = () => {
+                    if (ocrInput.value) ocrInput.value.click();
+                };
+
+                const doOcr = async (event) => {
+                    const file = event.target.files && event.target.files[0];
+                    event.target.value = '';
+                    if (!file) return;
+                    ocrLoading.value = true;
+                    try {
+                        const form = new FormData();
+                        form.append('file', file);
+                        const resp = await axios.post('/api/convert/ocr', form);
+                        if (resp.data.code === 200 && resp.data.data) {
+                            sql.value = resp.data.data;
+                            ElementPlus.ElMessage.success('识别完成，已填入 SQL 输入框');
+                        } else {
+                            ElementPlus.ElMessage.warning(resp.data.message || '未识别到 SQL');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('OCR 识别失败: ' + (e.response?.data?.message || e.message));
+                    } finally {
+                        ocrLoading.value = false;
+                    }
+                };
+
+                const copyText = async (text) => {
+                    if (!text) return;
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        ElementPlus.ElMessage.success('已复制到剪贴板');
+                    } catch (e) {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        ElementPlus.ElMessage.success('已复制到剪贴板');
+                    }
+                };
+
+                const cancelPolish = async () => {
+                    const job = PageState.get(JOB_KEY);
+                    try {
+                        if (job && job.jobId) {
+                            await axios.post(`/api/convert/polish/jobs/${job.jobId}/cancel`);
+                        }
+                    } catch (e) { /* 任务可能刚结束，忽略 */ }
+                    stopPolling();
+                    loading.value = false;
+                    polishing.value = false;
+                    waitingSec.value = 0;
+                    PageState.remove(JOB_KEY);
+                };
+
+                const clearAll = async () => {
+                    if (loading.value && polishing.value) {
+                        await cancelPolish();
+                    }
+                    sql.value = '';
+                    result.value = null;
+                    PageState.remove('convert-manual');
+                };
+
+                onMounted(() => {
+                    fetchDatabases();
+
+                    // 切菜单/刷新回来：若上次润色仍在服务端执行，恢复等待状态并继续轮询；
+                    // 若任务已经跑完（切走期间完成），第一次轮询就带回结果。
+                    const savedJob = PageState.get(JOB_KEY);
+                    if (savedJob && savedJob.jobId) {
+                        startPolling(savedJob.jobId, savedJob.beganAt || Date.now());
+                    }
+
+                    // 移动端菜单控制：点击展开/收起，按钮图标联动切换
+                    const menuBtn = document.getElementById('mobileMenuBtn');
+                    const sidebar = document.querySelector('.sidebar');
+                    const overlay = document.getElementById('menuOverlay');
+                    if (menuBtn && sidebar && overlay) {
+                        const setMenu = (open) => {
+                            sidebar.classList.toggle('mobile-open', open);
+                            overlay.style.display = open ? 'block' : 'none';
+                            menuBtn.innerHTML = open ? '✕ 关闭' : '☰ 菜单';
+                        };
+                        menuBtn.addEventListener('click', () => setMenu(!sidebar.classList.contains('mobile-open')));
+                        overlay.addEventListener('click', () => setMenu(false));
+                        sidebar.querySelectorAll('.menu-item').forEach(a =>
+                            a.addEventListener('click', () => setMenu(false)));
+                    }
+                });
+
+                return { sql, targetDb, result, loading, polishing, waitingSec,
+                    ocrLoading, ocrInput, databases,
+                    doConvert, triggerOcr, doOcr, dbName, copyText, clearAll };
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html>

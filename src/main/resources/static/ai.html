@@ -10,39 +10,85 @@
     <script src="/libs/vue.global.prod.js"></script>
     <script src="/libs/element-plus.index.full.min.js"></script>
     <script src="/libs/axios.min.js"></script>
-    <script src="/menu-loader.js"></script>
+    <script src="/menu-groups.js"></script>
+    <script src="/auth.js"></script>
 </head>
 <body>
     <div id="app">
+        <!-- 移动端汉堡菜单按钮（z-index 高于菜单与遮罩，展开后仍可点击关闭） -->
+        <div id="mobileMenuBar" style="display:none;justify-content:space-between;align-items:center;width:100%;background:#0f2027;color:white;padding:12px;position:fixed;top:0;left:0;right:0;z-index:1002;">
+            <div style="font-weight:bold;">MuOpt - SQL优化与信创转换</div>
+            <button id="mobileMenuBtn" style="background:none;border:1px solid rgba(255,255,255,0.2);color:white;padding:8px 12px;border-radius:6px;margin-left:auto;">
+                ☰ 菜单
+            </button>
+        </div>
+
+        <!-- 移动端遮罩层 -->
+        <div id="menuOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;"></div>
+
         <!-- 左侧菜单 - 完整，不会消失 -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h1>MuOpt <span style="font-size:14px;font-weight:normal;">v1.0.0</span></h1>
-                <p>沐优 - SQL优化助手</p>
+                <h1>MuOpt <span style="font-size:14px;font-weight:normal;">v1.1.0</span></h1>
+                <p>沐优 - SQL优化与信创转换</p>
             </div>
             <nav class="menu">
-                <a href="/manual.html" class="menu-item ">
-                    <span class="menu-icon">✏️</span><span>手工优化</span>
-                </a>
-                <a href="/auto.html" class="menu-item ">
-                    <span class="menu-icon">🔍</span><span>扫描优化</span>
-                </a>
-                <a href="/explain.html" class="menu-item ">
+                <div class="menu-group" data-group="optimize">
+                    <div class="menu-group-title">
+                        <span class="menu-icon">🚀</span><span>SQL 优化</span>
+                        <span class="menu-group-arrow">▾</span>
+                    </div>
+                    <div class="menu-group-items">
+                        <a href="/manual.html" class="menu-item">
+                            <span class="menu-icon">✏️</span><span>手工优化</span>
+                        </a>
+                        <a href="/auto.html" class="menu-item">
+                            <span class="menu-icon">🔍</span><span>扫描优化</span>
+                        </a>
+                    </div>
+                </div>
+                <div class="menu-group" data-group="convert">
+                    <div class="menu-group-title">
+                        <span class="menu-icon">🔄</span><span>SQL 转换</span>
+                        <span class="menu-group-arrow">▾</span>
+                    </div>
+                    <div class="menu-group-items">
+                        <a href="/convert-manual.html" class="menu-item">
+                            <span class="menu-icon">✏️</span><span>手工转换</span>
+                        </a>
+                        <a href="/convert-auto.html" class="menu-item">
+                            <span class="menu-icon">🔍</span><span>扫描转换</span>
+                        </a>
+                    </div>
+                </div>
+                <a href="/explain.html" class="menu-item">
                     <span class="menu-icon">📊</span><span>SQL执行计划</span>
                 </a>
-                <a href="/datasource.html" class="menu-item ">
+                <a href="/datasource.html" class="menu-item">
                     <span class="menu-icon">🔗</span><span>数据源配置</span>
                 </a>
                 <a href="/ai.html" class="menu-item active">
                     <span class="menu-icon">🤖</span><span>AI模型配置</span>
                 </a>
-                <a href="/about.html" class="menu-item ">
-                    <span class="menu-icon">ℹ️</span><span>关于软件</span>
+                <a href="/about.html" class="menu-item">
+                    <span class="menu-icon">ℹ️</span><span>关于我们</span>
+                </a>
+                <a href="/profile.html" class="menu-item">
+                    <span class="menu-icon">⚙️</span><span>个人中心</span>
                 </a>
             </nav>
+            <div class="sidebar-footer">
+                <div class="user-chip">
+                    <span class="user-avatar">👤</span>
+                    <div class="user-chip-info">
+                        <div class="user-nickname" data-user-nickname>加载中…</div>
+                        <div class="user-account" data-user-account></div>
+                    </div>
+                </div>
+                <a href="javascript:;" class="logout-link js-logout">🚪 退出登录</a>
+            </div>
         </aside>
         <div class="app-container">
-            </aside>
 
             <main class="main-content">
                 <div class="page-header">
@@ -117,6 +163,7 @@
                             <el-select v-model="form.protocol" style="width:100%;" @change="onProtocolChange">
                                 <el-option label="OpenAI 兼容（百炼 / DeepSeek / OpenAI / 内网网关）" value="OPENAI"></el-option>
                                 <el-option label="Anthropic" value="ANTHROPIC"></el-option>
+                                <el-option label="Ollama（本地部署）" value="OLLAMA"></el-option>
                             </el-select>
                         </el-form-item>
                         <el-form-item label="Base URL" required>
@@ -124,6 +171,9 @@
                         </el-form-item>
                         <el-form-item label="模型名称" required>
                             <el-input v-model="form.model" placeholder="如 qwen-max-latest / deepseek-chat；火山方舟填接入点 ID（ep-xxxx）"></el-input>
+                        </el-form-item>
+                        <el-form-item label="视觉模型">
+                            <el-input v-model="form.visionModel" placeholder="可选，用于「手工转换」页图片识别 SQL，如 qwen-vl-plus"></el-input>
                         </el-form-item>
                         <el-form-item label="API Key">
                             <el-input v-model="form.apiKey" type="password" show-password
@@ -135,8 +185,16 @@
                         <el-form-item label="超时(秒)">
                             <el-input-number v-model="form.timeoutSeconds" :min="5" :max="600"></el-input-number>
                         </el-form-item>
+                        <el-form-item label="禁用推理思考">
+                            <el-switch v-model="form.disableThinking"></el-switch>
+                            <div style="font-size:12px;color:#999;line-height:1.6;">
+                                开启后关闭推理模型的思考链，让 Max Tokens 全留给 SQL 输出，避免长 SQL 被截断或拖慢超时。
+                                仅在希望推理模型深度思考复杂改写时关闭此开关。
+                            </div>
+                        </el-form-item>
                         <div style="font-size:12px;color:#999;line-height:1.8;background:#fafafa;border-radius:6px;padding:8px 12px;">
-                            <div>📌 常见 OpenAI 兼容配置：</div>
+                            <div>📌 常见配置：</div>
+                            <div>· Ollama（本地部署）：Base URL 填 <code>http://localhost:11434/v1</code>，模型如 <strong>llama2 / mistral / gemma</strong></div>
                             <div>· 火山方舟（豆包）：Base URL 填 <code>https://ark.cn-beijing.volces.com/api/v3</code>，模型填<strong>推理接入点 ID（ep-xxxx）</strong></div>
                             <div>· 阿里百炼：<code>https://dashscope.aliyuncs.com/compatible-mode/v1</code> · DeepSeek：<code>https://api.deepseek.com</code></div>
                             <div>· 一直「连接超时」多半是网络不通：公司内网可在服务端设置环境变量 <code>HTTPS_PROXY=http://代理IP:端口</code>（或 app.ai.proxy）后重启</div>
@@ -170,7 +228,8 @@
                 function emptyForm() {
                     return { id: null, name: '', protocol: 'OPENAI',
                              baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-                             model: '', apiKey: '', maxTokens: 4096, timeoutSeconds: 60 };
+                             model: '', visionModel: '', apiKey: '', maxTokens: 4096, timeoutSeconds: 120,
+                             disableThinking: true };
                 }
 
                 function apiError(e, fallback) {
@@ -192,8 +251,15 @@
                 const onProtocolChange = async (val) => {
                     try {
                         const resp = await axios.get('/api/ai/protocol-defaults', { params: { protocol: val } });
-                        if (resp.data.code === 200) form.baseUrl = resp.data.data.defaultBaseUrl;
-                    } catch (e) { /* 忽略，保留用户输入 */ }
+                        if (resp.data.code === 200) {
+                            form.baseUrl = resp.data.data.defaultBaseUrl;
+                        }
+                    } catch (e) {
+                        // 特殊处理 Ollama 默认值
+                        if (val === 'OLLAMA') {
+                            form.baseUrl = 'http://localhost:11434/v1';
+                        }
+                    }
                 };
 
                 const openCreate = () => {
@@ -204,8 +270,9 @@
                 const openEdit = (row) => {
                     Object.assign(form, emptyForm(), {
                         id: row.id, name: row.name, protocol: row.protocol,
-                        baseUrl: row.baseUrl, model: row.model, apiKey: '',
-                        maxTokens: row.maxTokens || 4096, timeoutSeconds: row.timeoutSeconds || 60
+                        baseUrl: row.baseUrl, model: row.model, visionModel: row.visionModel || '', apiKey: '',
+                        maxTokens: row.maxTokens || 4096, timeoutSeconds: row.timeoutSeconds || 120,
+                        disableThinking: row.disableThinking !== false
                     });
                     dialogVisible.value = true;
                 };
@@ -279,15 +346,18 @@
                     togglingId.value = row.id;
                     try {
                         if (val) {
+                            // 启用前先测试连通性，只有测试成功才允许启用
+                            const testResp = await axios.post(`/api/ai/${row.id}/test`);
+                            const testResult = testResp.data.data;
+
+                            if (!testResult.success) {
+                                ElementPlus.ElMessage.error(`连接失败：${testResult.message}，无法启用`);
+                                return;
+                            }
+
                             const resp = await axios.post(`/api/ai/${row.id}/enable`);
                             if (resp.data.code === 200) {
-                                const saved = resp.data.data;
-                                if (saved && saved.lastTestOk === false) {
-                                    ElementPlus.ElMessage.warning(
-                                        `已启用「${row.name}」，其他模型已自动停用；但连通性探测失败：${saved.lastTestMessage || ''}`);
-                                } else {
-                                    ElementPlus.ElMessage.success(`已启用「${row.name}」，其他模型已自动停用`);
-                                }
+                                ElementPlus.ElMessage.success(`已启用「${row.name}」，其他模型已自动停用`);
                             } else {
                                 ElementPlus.ElMessage.error(resp.data.message || '启用失败');
                             }
@@ -322,7 +392,25 @@
                     }).catch(() => {});
                 };
 
-                onMounted(fetchList);
+                onMounted(() => {
+                    fetchList();
+                    // 移动端菜单控制：点击展开/收起，按钮图标联动切换
+                    const menuBtn = document.getElementById('mobileMenuBtn');
+                    const sidebar = document.querySelector('.sidebar');
+                    const overlay = document.getElementById('menuOverlay');
+
+                    if (menuBtn && sidebar && overlay) {
+                        const setMenu = (open) => {
+                            sidebar.classList.toggle('mobile-open', open);
+                            overlay.style.display = open ? 'block' : 'none';
+                            menuBtn.innerHTML = open ? '✕ 关闭' : '☰ 菜单';
+                        };
+                        menuBtn.addEventListener('click', () => setMenu(!sidebar.classList.contains('mobile-open')));
+                        overlay.addEventListener('click', () => setMenu(false));
+                        sidebar.querySelectorAll('.menu-item').forEach(a =>
+                            a.addEventListener('click', () => setMenu(false)));
+                    }
+                });
 
                 return { list, activeProvider, dialogVisible, saving, testingForm, testingId, togglingId,
                          form, formatTime, onProtocolChange, openCreate, openEdit, onTestForm, onSave,

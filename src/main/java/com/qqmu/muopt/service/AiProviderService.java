@@ -124,6 +124,9 @@ public class AiProviderService {
             throw new IllegalArgumentException("模型名称不能为空");
         }
         provider.setModel(provider.getModel().trim());
+        if (provider.getVisionModel() != null) {
+            provider.setVisionModel(provider.getVisionModel().trim());
+        }
 
         if (provider.getMaxTokens() == null || provider.getMaxTokens() <= 0) {
             provider.setMaxTokens(4096);

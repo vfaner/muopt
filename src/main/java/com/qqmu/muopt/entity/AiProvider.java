@@ -46,6 +46,10 @@ public class AiProvider {
     @Column(length = 128)
     private String model;
 
+    /** 视觉模型（可选）：用于「SQL 转换」页的图片 OCR 识别；为空时 OCR 不可用并提示补充 */
+    @Column(name = "vision_model", length = 128)
+    private String visionModel;
+
     /** 加密存储（enc: 前缀）；只接收表单明文，响应永不回传 */
     @Lob
     @Column(name = "api_key_enc")
@@ -59,8 +63,16 @@ public class AiProvider {
     @Column(name = "max_tokens")
     private Integer maxTokens = 4096;
 
+    /**
+     * 关闭推理模型的思考链（默认关）。SQL 改写 / 方言润色的输出契约本就禁止分析过程，
+     * 思考链只会占用输出预算与生成时间，导致 SQL 被截断（finish_reason=length）或拖慢超时。
+     * 旧数据为 null，读取端按「关闭」处理（见 {@code AiService#thinkingDisabled}）。
+     */
+    @Column(name = "disable_thinking")
+    private Boolean disableThinking = true;
+
     @Column(name = "timeout_seconds")
-    private Integer timeoutSeconds = 60;
+    private Integer timeoutSeconds = 120;
 
     @Column(name = "last_test_at")
     private Instant lastTestAt;

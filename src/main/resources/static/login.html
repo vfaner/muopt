@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='10' width='48' height='44' rx='6' fill='url(%23g)'/%3E%3Cpath d='M18 40 L28 28 L36 34 L46 20' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <title>登录 - MuOpt 沐优</title>
+    <link rel="stylesheet" href="/libs/element-plus.index.css">
+    <script src="/libs/vue.global.prod.js"></script>
+    <script src="/libs/element-plus.index.full.min.js"></script>
+    <script src="/libs/axios.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #0a0f1e;
+            overflow: hidden;
+            position: relative;
+            min-height: 100vh;
+        }
+        /* 深色科技底 */
+        .bg-base {
+            position: fixed; inset: 0;
+            background:
+                radial-gradient(1200px 800px at 80% -10%, rgba(17,153,142,0.25), transparent 60%),
+                radial-gradient(1000px 700px at -10% 110%, rgba(56,239,125,0.18), transparent 60%),
+                linear-gradient(160deg, #0a0f1e 0%, #0d1b2a 55%, #0b1424 100%);
+            z-index: 0;
+        }
+        /* 网格：科技感透视网格 */
+        .grid {
+            position: fixed; inset: 0; z-index: 1;
+            background-image:
+                linear-gradient(rgba(56,239,125,0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(56,239,125,0.05) 1px, transparent 1px);
+            background-size: 46px 46px;
+            transform: perspective(600px) rotateX(58deg) scale(2.2) translateY(6%);
+            transform-origin: center top;
+            -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 0%, transparent 72%);
+            mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 0%, transparent 72%);
+        }
+        /* 漂浮光斑 */
+        .blob {
+            position: fixed; border-radius: 50%; filter: blur(90px); opacity: 0.5; z-index: 0;
+            animation: float 16s ease-in-out infinite;
+        }
+        .blob.b1 { width: 420px; height: 420px; background: #11998e; top: -120px; left: -100px; }
+        .blob.b2 { width: 360px; height: 360px; background: #38ef7d; bottom: -120px; right: -80px; animation-delay: -6s; }
+        .blob.b3 { width: 260px; height: 260px; background: #2bb3e0; top: 40%; left: 55%; animation-delay: -10s; opacity: 0.32; }
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(30px, -40px) scale(1.08); }
+            66% { transform: translate(-20px, 30px) scale(0.94); }
+        }
+        /* 登录容器 */
+        .login-wrap {
+            position: relative; z-index: 2;
+            min-height: 100vh;
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px;
+        }
+        .card {
+            width: 400px; max-width: 100%;
+            background: rgba(16,24,40,0.72);
+            backdrop-filter: blur(20px) saturate(140%);
+            -webkit-backdrop-filter: blur(20px) saturate(140%);
+            border: 1px solid rgba(255,255,255,0.09);
+            border-radius: 22px;
+            padding: 44px 38px 38px;
+            box-shadow: 0 30px 80px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
+        }
+        .logo {
+            width: 64px; height: 64px; margin: 0 auto 18px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 18px;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            box-shadow: 0 10px 30px rgba(56,239,125,0.35);
+        }
+        .logo svg { width: 36px; height: 36px; }
+        .brand { text-align: center; margin-bottom: 6px; }
+        .brand h1 {
+            font-size: 26px; font-weight: 700; letter-spacing: 1px; color: #fff;
+            background: linear-gradient(90deg, #ffffff, #a8f0c6);
+            -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .brand p { color: rgba(255,255,255,0.55); font-size: 13px; margin-top: 6px; letter-spacing: 2px; }
+        .login-form { margin-top: 30px; }
+        .login-form .field { margin-bottom: 20px; }
+        .login-form .el-input__wrapper {
+            background: rgba(255,255,255,0.06) !important;
+            border: 1px solid rgba(255,255,255,0.10);
+            box-shadow: none !important;
+            border-radius: 12px;
+            padding: 4px 14px;
+        }
+        .login-form .el-input__wrapper.is-focus {
+            border-color: rgba(56,239,125,0.6);
+            box-shadow: 0 0 0 3px rgba(56,239,125,0.12) !important;
+        }
+        .login-form .el-input__inner { color: #eafaf0; height: 42px; }
+        .login-form .el-input__inner::placeholder { color: rgba(255,255,255,0.35); }
+        .login-btn {
+            width: 100%; height: 46px; font-size: 16px; letter-spacing: 4px; border: none; margin-top: 8px;
+            border-radius: 12px; color: #fff; cursor: pointer; font-weight: 600;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            box-shadow: 0 12px 30px rgba(56,239,125,0.35);
+            transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s;
+        }
+        .login-btn:hover { transform: translateY(-1px); box-shadow: 0 16px 36px rgba(56,239,125,0.45); }
+        .login-btn:active { transform: translateY(0); }
+        .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="bg-base"></div>
+    <div class="grid"></div>
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+
+    <div class="login-wrap">
+        <div class="card" id="app" v-cloak>
+            <div class="logo">
+                <svg viewBox="0 0 64 64"><rect x="8" y="10" width="48" height="44" rx="6" fill="#fff"/><path d="M18 40 L28 28 L36 34 L46 20" stroke="#11998e" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="brand">
+                <h1>MuOpt · 沐优</h1>
+                <p>SQL 优化与信创转换平台</p>
+            </div>
+
+            <form class="login-form" @submit.prevent="doLogin">
+                <div class="field">
+                    <el-input v-model="username" size="large" placeholder="账号" clearable>
+                        <template #prefix><span style="color:rgba(255,255,255,0.4)">👤</span></template>
+                    </el-input>
+                </div>
+                <div class="field">
+                    <el-input v-model="password" size="large" type="password" placeholder="密码" show-password @keyup.enter="doLogin">
+                        <template #prefix><span style="color:rgba(255,255,255,0.4)">🔒</span></template>
+                    </el-input>
+                </div>
+                <button class="login-btn" type="submit" :disabled="loading">
+                    {{ loading ? '登录中…' : '登 录' }}
+                </button>
+            </form>
+
+            </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+        createApp({
+            setup() {
+                const username = ref('');
+                const password = ref('');
+                const loading = ref(false);
+                const redirect = ref('/manual.html');
+
+                // 回跳目标：只接受站内相对路径，防止开放重定向
+                const safeRedirect = () => {
+                    const p = new URLSearchParams(location.search).get('redirect') || '';
+                    if (p.startsWith('/') && !p.startsWith('//') && !p.includes('..')) {
+                        return p;
+                    }
+                    return '/manual.html';
+                };
+
+                const doLogin = async () => {
+                    if (loading.value) return;
+                    if (!username.value.trim() || !password.value) {
+                        ElementPlus.ElMessage.warning('请输入账号和密码');
+                        return;
+                    }
+                    loading.value = true;
+                    try {
+                        const resp = await axios.post('/api/auth/login', {
+                            username: username.value.trim(),
+                            password: password.value
+                        });
+                        if (resp.data.code === 200) {
+                            ElementPlus.ElMessage.success('登录成功，欢迎回来');
+                            setTimeout(() => { window.location.href = redirect.value; }, 300);
+                        } else if (resp.data.code === 423) {
+                            ElementPlus.ElMessage.error(resp.data.message || '登录失败');
+                        } else {
+                            ElementPlus.ElMessage.warning(resp.data.message || '登录失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error(e.response?.data?.message || '登录失败，请稍后重试');
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                onMounted(() => {
+                    redirect.value = safeRedirect();
+                });
+
+                return { username, password, loading, doLogin };
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+    <style>[v-cloak]{display:none;}</style>
+</body>
+</html>

@@ -5,96 +5,73 @@
 > 🎬 **项目演示视频（Bilibili）**：[开源SQL优化神器：一键扫描项目代码，智能补全索引，还支持可视化执行计划！](https://www.bilibili.com/video/BV1vVYm6yEhf)
 >
 > <a href="https://www.bilibili.com/video/BV1vVYm6yEhf"><img src="docs/demo-video-cover.jpg" alt="SQL 优化工具演示视频" width="760"></a>
->
-> 点击封面即可在 B 站观看（时长约 9 分钟）。
 
-## 📖 项目简介
+## 💡 开发背景
 
-MuOpt（沐优）是一个基于 Spring Boot 3 的 Web SQL 优化助手，针对给定的查询 SQL 进行智能优化分析，给出合适的索引建议，并支持连接真实数据源做深度优化与执行计划分析。
+随着信创改造在政企行业的全面铺开，大量存量业务系统需要从 MySQL / Oracle 迁移到达梦、人大金仓、GaussDB 等国产数据库，同时日常开发中的慢 SQL 也缺乏一个不依赖具体 IDE、开箱即用的排查工具：
 
-**核心特性：索引建议颜色区分** —— 已建立的索引以**灰色**（删除线）展示，尚未建立的以**橙色**展示，均支持一键复制。
+- **SQL 优化门槛高**：DBA 资源有限，一线开发很难判断"这条 SQL 该不该加索引、加在哪些列上"；执行计划裸看费劲，缺少直观的可视化比对；
+- **信创迁移工作量巨大**：一个项目动辄上千条 SQL 散落在 MyBatis XML、Java 注解与 `.sql` 脚本里，人工逐条改写方言既枯燥又容易漏；
+- **内网环境工具匮乏**：很多单位内网无法访问在线工具，云服务又过不了安全审计，需要一个能拷进内网直接跑的本地工具。
 
-### ✨ 主要特性
+MuOpt（沐优）就是为解决这三件事而生：**给开发一个能带进内网的 SQL 优化 + 信创转换瑞士军刀**。
 
-- 🎯 **智能索引建议**：基于 JSqlParser 解析 AST，从 WHERE 等值/范围条件、JOIN ON、ORDER BY、GROUP BY 中提取候选列，生成合理的（组合）索引
-- 🎨 **颜色区分状态**：已存在=灰色、缺失/未核实=橙色，一目了然，支持复制粘贴
-- ✏️ **手工优化**：粘贴单条 SQL 即时分析
-- 🔍 **扫描优化**：扫描项目目录，提取 MyBatis XML、Java 代码中的 SQL 字符串、注解中的 SQL（`@Select`/`@Insert`/`@Update`/`@Delete`/`@Query`），逐条分析并支持一键原地替换（自动 `.bak` 备份）
-- 🤖 **AI 深度优化**（可选）：支持配置多个 AI 模型（百炼 / DeepSeek / OpenAI / Anthropic 及各类 OpenAI 兼容网关），同一时刻启用一个，对 SQL 智能改写
-- 🔗 **配置数据源**（可选）：配置后可进行——
-  - 索引存在性检测（区分灰/橙）
-  - 冗余索引检测（给出 DROP 建议）
-  - 大小表驱动判断（小表驱动大表建议）
-- 📊 **SQL 执行计划**：连接数据源后执行 EXPLAIN，提供**表格 / 树形 / 图形**三种视图（类 DBeaver）：
-  - 表格：结构化列 Operation / Object / Rows / Cost / Node Type
-  - 树形 / 图形：按执行计划层级展示节点，按操作类型着色（全表扫描红、索引绿、JOIN 紫等）
-  - 成本过高才建议加索引，数据量很少则提示无需建立
+## 📖 项目介绍
 
-### 🎨 设计逻辑
+MuOpt 是一个基于 Spring Boot 3 的 Web SQL 优化与信创转换助手，单文件 muopt.jar 部署、浏览器即用，无需安装任何客户端。
 
-| 场景 | 行为 |
-|------|------|
-| **未配置数据源** | 索引建议全部**橙色**（无法核实是否已存在），可复制 `CREATE INDEX`；执行计划页提示"请先配置数据源" |
-| **已配置数据源** | 索引区分**灰色（已存在）/ 橙色（缺失）**；额外给出冗余索引、大小表驱动建议；可用执行计划分析 |
-| **手工/扫描页头** | 配置数据源后顶部显示"✅ 已配置数据源，可进行深度优化" |
+**核心能力一览：**
 
-## 🖼️ 功能截图
+- 🎯 **智能索引建议**：基于 JSqlParser 解析 AST，从 WHERE 等值/范围条件、JOIN ON、ORDER BY、GROUP BY 中提取候选列，生成合理的（组合）索引；建议区分**橙色（待创建）/ 灰色（已存在）**，连接数据源后自动核实
+- ✏️ **手工优化**：粘贴单条 SQL 即时分析，AI 深度改写失败/超时自动降级本地规则改写
+- 🔍 **扫描优化**：扫描项目目录，提取 MyBatis XML、Java 字符串、注解 SQL（`@Select`/`@Insert`/`@Update`/`@Delete`），逐条分析并支持一键原地替换（自动 `.bak` 备份）
+- 🔄 **SQL 信创转换**：手工/批量两种模式，规则引擎毫秒级完成 18 种数据库方言转换（函数、类型、分页、自增、日期格式串），可叠加 AI 方言润色做二次把关；扫描转换支持整个项目一键改造写回
+- 🤖 **AI 深度优化**（可选）：支持配置多个 AI 模型（百炼 / DeepSeek / OpenAI / Anthropic 及各类 OpenAI 兼容网关），同一时刻启用一个，可关闭推理模型的思考链防止长 SQL 被截断
+- 🔗 **数据源配置**（可选）：十余种数据库驱动内置，连接后可做索引存在性检测、冗余索引检测（DROP 建议）、大小表驱动判断
+- 📊 **SQL 执行计划**：连接数据源后执行 EXPLAIN，提供**表格 / 树形 / 图形**三种视图（类 DBeaver），按操作类型着色（全表扫描红、索引绿、JOIN 紫），并给出成本评估
+- 🔐 **账号体系**：登录鉴权（连续失败 5 次锁定 30 分钟）、个人中心自助改密，多用户使用互不影响
 
-### ✏️ 手工优化
+### 🖼️ 功能截图
 
-粘贴单条 SQL 即时分析：未开启 AI 时给出索引建议与优化提示（不改动 SQL）；开启 AI 后智能改写，AI 超时/失败会自动降级为本地规则改写。
+**登录页**（失败次数过多自动锁定 30 分钟）：
 
-**本地规则分析（未开 AI）：** 索引建议区分「建议创建 / 已存在」，连接数据源后为深度检测
+<img src="docs/muopt_login.png" width="480" alt="登录页">
 
-<img src="docs/sql_yh_ai_sd.png" width="1180" alt="手工优化-本地分析">
+**SQL 优化 · 手工优化**（索引建议橙/灰区分，AI 深度改写）：
 
-**开启 AI 深度优化：**
+<img src="docs/muopt_opt_sd.png" width="1180" alt="手工优化">
 
-<img src="docs/sql_yh_ai_sd_ai.png" width="1180" alt="手工优化-开启AI">
+**SQL 优化 · 扫描优化**（后台任务，8 路并发 AI 改写，可一键写回源文件）：
 
-**深度分析详情：** 各表实际行数、小表驱动大表建议、冗余/已有索引判定；AI 超时时明确提示原因（本例为响应超时 60s，引导检查火山方舟 Base URL 与接入点 ID）
+<img src="docs/muopt_opt_zd.png" width="1180" alt="扫描优化">
 
-<img src="docs/sql_yh_ai_sd_ai_tishi.png" width="1180" alt="手工优化-深度分析与超时提示">
+**SQL 转换 · 手工转换**（单条 SQL 方言转换，支持图片 OCR 识别与 AI 润色）：
 
-### 🔍 扫描优化
+<img src="docs/muopt_convert_sd.png" width="1180" alt="手工转换">
 
-选择项目目录后扫描 MyBatis XML、Java 代码、`.sql` 脚本中的 SQL，逐条给出优化建议并可一键原地替换（自动 `.bak` 备份）。扫描是服务端后台任务，可以放心切到其他页面，回来自动展示结果。
+**SQL 转换 · 扫描转换**（整个项目批量转换，自动 `.bak` 备份）：
 
-**后台扫描进行中（8 路并发 AI 改写，可随时取消/切页）：**
+<img src="docs/muopt_convert_zd.png" width="1180" alt="扫描转换">
 
-<img src="docs/sql_yh_ai_zd.png" width="1180" alt="扫描优化-后台进行中">
+**数据源配置**（多连接互斥启用，密码加密落库）：
 
-**逐条结果：源 SQL / 优化后 SQL（AI 或规则标签）/ 索引建议：**
+<img src="docs/muopt_db.png" width="1180" alt="数据源配置">
 
-<img src="docs/sql_yh_ai_zd1.png" width="1180" alt="扫描优化-结果详情">
+**AI 模型配置**（多模型互斥启用，支持连通性探测）：
 
-### 🔗 配置数据源
+<img src="docs/muopt_ai.png" width="1180" alt="AI模型配置">
 
-可保存多个数据库连接，通过开关互斥启用（启用新的自动停用旧的），密码加密存储、配置持久化重启不丢；内置达梦 / openGauss / 人大金仓等信创驱动，并支持自定义 JDBC URL。
+**SQL 执行计划**（表格 / 树形 / 图形三视图）：
 
-<img src="docs/sql_yh_db.png" width="1180" alt="数据源列表">
+<img src="docs/muopt_exp.png" width="1180" alt="SQL执行计划">
 
-<img src="docs/sql_yh_db_add.png" width="1100" alt="新增数据源">
+**关于我们**（版本对比 GitHub / Gitee release，支持在线自更新）：
 
-### 🤖 AI 模型
+<img src="docs/muopt_about.png" width="1180" alt="关于我们">
 
-可保存多个 AI 模型配置（OpenAI 兼容 / Anthropic 协议、Base URL、模型、API Key），同一时刻只能启用一个；支持「测试连通性」与最近探测状态展示，编辑时 Key 留空表示不修改。
+**个人中心**（可修改密码）：
 
-<img src="docs/sql_yh_ai.png" width="1180" alt="AI模型列表">
-
-<img src="docs/sql_yh_ai_add.png" width="1000" alt="新增AI模型">
-
-### 📊 SQL 执行计划
-
-连接数据源后执行 EXPLAIN，提供表格 / 树形 / 图形三种视图（类 DBeaver），按操作类型着色（全表扫描红、索引查找绿、JOIN 紫），并给出成本评估。
-
-**表格视图：**
-
-<img src="docs/sql_yh_ai_exp.png" width="1180" alt="执行计划-表格">
-
-**树形视图：**
-
-<img src="docs/sql_yh_ai_exp_shuxing.png" width="1180" alt="执行计划-树形">
+<img src="docs/muopt_gerenzhongxin.png" width="1180" alt="个人中心">
 
 ## 🛠️ 技术栈
 
@@ -102,174 +79,112 @@ MuOpt（沐优）是一个基于 Spring Boot 3 的 Web SQL 优化助手，针对
 |------|------|
 | 后端 | Spring Boot 3.2, JSqlParser 4.9, HikariCP, JDK HttpClient |
 | 前端 | Vue 3 CDN + Element Plus CDN（纯 HTML，无构建工具） |
-| 配置存储 | H2 文件库（`./data`）+ Spring Data JPA；密码/API Key 使用 spring-security-crypto 加密落库 |
+| 数据存储 | H2 文件库（`./data`）+ Spring Data JPA；密码/API Key 使用 spring-security-crypto 加密落库 |
 | AI 接口 | OpenAI 兼容协议（百炼 / DeepSeek / OpenAI / 内网网关）+ Anthropic Messages 协议 |
-| 数据库驱动 | MySQL、PostgreSQL、Oracle、达梦 DM8、openGauss、人大金仓 KingBaseES（信创原厂驱动均已内置） |
-| 构建 | Maven, JDK 17+ |
+| 数据库驱动 | MySQL、PostgreSQL、Oracle、SQL Server、DB2、达梦 DM8、openGauss、人大金仓、OceanBase、瀚高、崖山等（均已内置，见下） |
+| 构建与运行 | Maven, JDK 17+ |
 
-## 🚀 快速开始
+## 🚀 部署步骤
 
 ```bash
-cd sql-optimizer-tool
+cd muopt
 
-# 编译打包
+# 1. 编译打包（需 Maven + JDK 17+）
 mvn clean package
 
-# 运行（默认端口 8090）
-java -jar target/sql-optimizer-tool-1.0.0.jar
+# 2. 运行（默认端口 8080）
+java -jar target/muopt.jar
 ```
 
-访问：http://localhost:8090
+访问：http://localhost:8080 ，首次使用请先注册/登录账号。
 
-打包产物为单个可执行 fat jar（约 64MB，内置 MySQL / PostgreSQL / Oracle / 达梦 / openGauss / 人大金仓驱动与前端页面），拷到装有 **JDK 17+** 的内网机器即可直接运行，无需 Maven、无需联网：
+打包产物为单个可执行 fat jar（约 70MB，内置十余种数据库驱动与前端页面），拷到装有 **JDK 17+** 的内网机器即可直接运行，无需 Maven、无需联网：
 
 ```bash
-java -jar sql-optimizer-tool-1.0.0.jar
+java -jar muopt.jar
 # 可选：覆盖端口 / 监听地址 / 配置库加密口令
-java -jar sql-optimizer-tool-1.0.0.jar --server.port=8090 --server.address=0.0.0.0
+java -jar muopt.jar --server.port=8080 --server.address=0.0.0.0
 ```
 
-部署说明：
+部署时注意：
 
-- 数据库与 AI 配置保存在运行目录下的 `./data`（H2 文件库），日志在 `./logs/`，部署时注意这两个目录的持久化与备份；**不要删除 `./data`，否则所有配置丢失**。固定从同一工作目录启动；也可用环境变量 `APP_DATA_DIR` 把配置库指到绝对路径（如 `APP_DATA_DIR=/var/sql-optimizer/data`），启动日志会打印配置库的实际位置；
+- 数据库与 AI 配置保存在运行目录下的 `./data`（H2 文件库），日志在 `./logs/`，注意这两个目录的持久化与备份；**不要删除 `./data`，否则所有配置丢失**。固定从同一工作目录启动，或用环境变量 `APP_DATA_DIR` 指到绝对路径（如 `APP_DATA_DIR=/var/muopt/data`）；
 - 默认只监听 `127.0.0.1`，局域网访问需加 `--server.address=0.0.0.0` 并自行在网关加鉴权；
-- 达梦 / openGauss / 人大金仓驱动已内置；其他未内置驱动的数据库使用「自定义」类型，把驱动 jar 放到运行机器上指定路径即可；
+- 常用数据库驱动均已内置（见下表）；GBase 8a 等无公共仓库坐标的数据库在页面上填官网驱动 jar 路径，任意其他 JDBC 库用「自定义」类型接入；
 - AI 调用从运行机器直接访问所配置的 Base URL，请确保内网到该地址的网络可达。
 
 ### 配置 AI（可选）
 
-在左侧「AI 模型」页新增配置：选择协议（OpenAI 兼容 / Anthropic），填写 Base URL、模型名与 API Key，可先「测试连通性」再保存，最后打开启用开关。多个模型只能启用一个，切换启用会自动停用其他模型。Base URL 自由填写，任何 OpenAI 兼容的内网网关/自建推理服务均可接入。
+在左侧「AI 模型配置」页新增：选择协议（OpenAI 兼容 / Anthropic），填写 Base URL、模型名与 API Key，先「测试连通性」再保存，最后打开启用开关。多个模型只能启用一个，切换会自动停用其他。任何 OpenAI 兼容的内网网关 / 自建推理服务均可接入。
 
-不启用任何模型也可正常使用索引分析（仅 AI 深度改写不可用）。
+不启用任何模型也可正常使用索引分析与规则改写（仅 AI 深度改写不可用）。
 
-## 📊 支持的数据库（数据源连接）
+## 📊 支持的数据库
+
+**SQL 转换（目标方言，18 种）：** MySQL、MariaDB、PostgreSQL、GaussDB、openGauss、人大金仓、瀚高 HighGo、海量 Vastbase、达梦 DM、Oracle、崖山 YashanDB、SQL Server、DB2、OceanBase、TiDB、南大通用 GBase、GoldenDB、神通 Oscar。
+
+**数据源连接：**
 
 | 数据库 | 类型标识 | 驱动 | 默认端口 |
 |--------|---------|------|---------|
-| MySQL | `mysql` | MySQL 驱动 | 3306 |
-| Oracle | `oracle` | Oracle 驱动 | 1521 |
-| PostgreSQL | `postgresql` | PostgreSQL 驱动 | 5432 |
+| MySQL | `mysql` | **mysql-connector-j（内置）** | 3306 |
+| MariaDB | `mariadb` | **mariadb-java-client（内置）** | 3306 |
+| Oracle | `oracle` | **ojdbc8（内置）** | 1521 |
+| PostgreSQL | `postgresql` | **postgresql（内置）** | 5432 |
+| SQL Server | `sqlserver` | **mssql-jdbc（内置）** | 1433 |
+| DB2 | `db2` | **jcc（内置）** | 50000 |
 | 达梦 DM8 | `dameng` | **DmJdbcDriver18（内置）** | 5236 |
 | GaussDB | `gaussdb` | PostgreSQL 驱动（走 PG 协议） | 5432 |
 | openGauss | `opengauss` | **opengauss-jdbc（内置）** | 5432 |
 | 人大金仓 KingBaseES V8 | `kingbase` | **kingbase8（内置）** | 54321 |
-| OceanBase | `oceanbase` | MySQL 驱动 | 2881 |
-| TiDB | `tidb` | MySQL 驱动 | 4000 |
-| 自定义 | `custom` | 填写完整 JDBC URL + 驱动类名；驱动不在内置列表时可指定服务器本地 jar 路径（文件或目录，多个用 `;` 分隔），支持「扫描 jar」自动读取驱动类名；支持免密库与附加 URL 参数 | — |
+| OceanBase | `oceanbase` | **oceanbase-client（内置）** | 2881 |
+| TiDB | `tidb` | MySQL 驱动（兼容 MySQL 协议） | 4000 |
+| 瀚高 HighGo | `highgo` | **HgdbJdbc（内置）** | 5866 |
+| 崖山 YashanDB | `yashandb` | **yashandb-jdbc（内置）** | 5436 |
+| 海量 Vastbase | `vastbase` | 默认 PostgreSQL 兼容驱动；填 jar 后用原厂驱动 | 5432 |
+| 神通 Oscar | `oscar` | 默认 PostgreSQL 兼容驱动；填 jar 后用原厂驱动 | 8080 |
+| 南大通用 GBase 8a | `gbase` | 需官网驱动 jar（填写本地路径） | 5258 |
+| H2 | `h2` | **h2（内置）** | — |
+| 自定义 | `custom` | 完整 JDBC URL + 驱动类名；可指定本地 jar 路径，支持「扫描 jar」自动读取驱动类名与附加 URL 参数 | — |
 
-### 信创数据库驱动说明
-
-达梦 DM8（`com.dameng:DmJdbcDriver18:8.1.3.140`）、openGauss（`org.opengauss:opengauss-jdbc:5.0.3-og`）、
-人大金仓 KingBaseES V8（`cn.com.kingbase:kingbase8:9.0.1`）的原厂驱动均已打进 fat jar，开箱即用：
-
-- **达梦**：驱动类 `dm.jdbc.driver.DmDriver`，URL `jdbc:dm://host:5236`，「数据库名」填模式（Schema）名
-- **openGauss**：驱动类 `org.opengauss.Driver`，URL `jdbc:opengauss://host:5432/库名`
-- **人大金仓**：驱动类 `com.kingbase8.Driver`，URL `jdbc:kingbase8://host:54321/库名`
-- **GaussDB**：走 PostgreSQL 协议，使用内置 PostgreSQL 驱动 `jdbc:postgresql://host:5432/库名`
-
-如果你的数据库版本较旧/较新、与内置驱动不兼容，无需重新打包——页面上选择「自定义」类型，
-指定服务器上对应版本驱动 jar 的路径（配合「扫描 jar」自动填充驱动类名）与完整 JDBC URL 即可。
-
-## 📡 API 接口
-
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| `/api/optimize/start` | POST | 提交异步优化任务，返回 jobId（页面使用） |
-| `/api/optimize/jobs/{jobId}` | GET | 查询优化任务状态（RUNNING/SUCCESS/FAILED/CANCELLED，成功时携带结果） |
-| `/api/optimize/jobs/{jobId}/cancel` | POST | 取消优化任务 |
-| `/api/optimize` | POST | 优化单条 SQL（同步接口，保留兼容） |
-| `/api/optimize/batch` | POST | 批量优化多条 SQL（分号分隔） |
-| `/api/status` | GET | 全局状态（是否已配数据源 / AI） |
-| `/api/explain` | POST | 执行计划分析（需数据源） |
-| `/api/scan/start` | POST | 提交异步扫描任务，返回 jobId（页面使用） |
-| `/api/scan/jobs/{jobId}` | GET | 查询扫描任务状态（RUNNING/SUCCESS/FAILED/CANCELLED，成功时携带结果） |
-| `/api/scan/jobs/{jobId}/cancel` | POST | 取消扫描任务 |
-| `/api/scan` | POST | 同步扫描项目目录并提取 SQL（保留兼容） |
-| `/api/scan/replace` | POST | 将优化后的 SQL 替换回源文件（自动 `.bak` 备份） |
-| `/api/scan/dirs` | GET | 浏览服务器目录树（供目录选择器使用） |
-| `/api/datasource/list` | GET | 全部数据库连接（密码不回传） |
-| `/api/datasource/save` | POST | 新建/更新连接（编辑时密码留空表示不修改） |
-| `/api/datasource/{id}/enable` | POST | 启用连接（互斥：自动停用其他连接，先验证后热切换） |
-| `/api/datasource/{id}/disable` | POST | 停用连接 |
-| `/api/datasource/{id}/test`、`/api/datasource/test` | POST | 测试已保存/未保存的连接 |
-| `/api/datasource/discover-drivers?jarPath=` | GET | 扫描外部驱动 jar 中声明的驱动类名（自定义类型） |
-| `/api/datasource/{id}/delete` | POST | 删除连接（已启用需先停用） |
-| `/api/datasource/status` | GET | 当前活动连接状态 |
-| `/api/ai/list`、`/api/ai/save` | GET/POST | AI 模型列表 / 新建·更新（Key 不回传，留空不修改） |
-| `/api/ai/{id}/enable`、`/disable`、`/delete`、`/test` | POST | AI 模型互斥启用 / 停用 / 删除 / 探测 |
-| `/api/ai/protocol-defaults` | GET | 协议默认 Base URL |
-
-## 📁 项目结构
-
-```
-sql-optimizer-tool/
-├── docs/                                     # 功能截图
-├── src/main/java/com/qqmu/muopt/
-│   ├── SqlOptimizerApplication.java         # 启动类（H2 平台库存放多数据源/AI 配置）
-│   ├── common/                              # Result / IndexSuggestion / OptimizeResult
-│   │                                        # ExplainResult / ExplainRow / PlanNode / ScanItem
-│   ├── entity/                              # DatabaseConfig / AiProvider / AiProtocol（JPA 实体）
-│   ├── repository/                          # DatabaseConfigRepository / AiProviderRepository
-│   ├── util/CryptoUtil.java                 # 密码 / API Key 落库加密
-│   ├── config/                              # 全局异常处理
-│   ├── controller/
-│   │   ├── OptimizeController.java          # 优化 + 批量 + 状态
-│   │   ├── ExplainController.java           # 执行计划
-│   │   ├── ScanController.java              # 项目扫描 + 替换 + 目录浏览
-│   │   ├── DataSourceController.java        # 数据源多配置 CRUD / 互斥启用
-│   │   └── AiProviderController.java        # AI 模型多配置 CRUD / 互斥启用
-│   └── service/
-│       ├── IndexAnalyzerService.java        # 索引候选列提取（规则引擎核心）
-│       ├── SqlOptimizerService.java         # 优化编排：组合规则/数据源/AI
-│       ├── OptimizeJobManager.java          # 单条优化的后台任务（提交/轮询/取消）
-│       ├── ProjectScanService.java          # 项目扫描与原地替换
-│       ├── LocalRewriteService.java         # AI 不可用时的保底规则改写（JOIN/HAVING/SELECT *）
-│       ├── ScanJobManager.java              # 扫描后台任务（提交/轮询/取消）
-│       ├── DatabaseConfigService.java       # 数据源配置 CRUD + 唯一启用标志（事务）
-│       ├── DataSourceService.java           # 活动池热切换/索引检测/大小表/冗余索引
-│       ├── AiProviderService.java           # AI 模型 CRUD + 唯一启用 + 探测记录
-│       ├── AiChatClient.java                # OpenAI 兼容 / Anthropic 两种协议的 HTTP 客户端
-│       ├── AiConnectionTestService.java     # AI 端点探测（max_tokens=1）
-│       ├── ExplainService.java              # EXPLAIN 执行、计划树解析与成本评估
-│       └── AiService.java                   # 基于启用模型的 SQL 深度优化
-└── src/main/resources/
-    ├── application.yml
-    └── static/
-        ├── index.html         # 入口（跳转手工优化）
-        ├── common.css         # 共享样式
-        ├── manual.html        # 手工优化
-        ├── auto.html          # 扫描优化
-        ├── explain.html       # SQL 执行计划
-        ├── datasource.html    # 数据源多配置管理（互斥启用）
-        ├── ai.html            # AI 模型多配置管理（互斥启用）
-        ├── donate.html        # 打赏支持
-        └── image/
-            └── ds.png         # 打赏二维码
-```
+内置驱动全部来自 Maven 中央仓库并打进 fat jar，开箱即用。无公共坐标的库按以下策略处理：TiDB / GaussDB 直接用兼容协议内置驱动；Vastbase / Oscar 默认 PG 兼容驱动、可填官网 jar 切换原厂驱动；GBase 8a 填官网 jar；其余任意 JDBC 库走「自定义」类型。驱动版本与现场不匹配时，在数据源上填新版驱动 jar 路径即可覆盖，无需重新打包。
 
 ## 📝 注意事项
 
-1. **多配置与互斥启用**：数据库连接与 AI 模型均可保存多个，各自同一时刻只能启用一个，互斥关系由服务端事务保证；配置保存在 `./data` 的 H2 文件库中，重启不丢。密码/API Key 加密存储、不回传前端，编辑时留空表示沿用原值；加密口令可用环境变量 `APP_CRYPTO_PASSWORD` / `APP_CRYPTO_SALT` 覆盖。启动时会自动尝试恢复上次启用的数据库连接，失败则在页面显示“启用中·连接失败”。
-   - **优化/扫描都是服务端后台任务**：手工优化与项目扫描点击后都立即返回任务 ID，任务在服务端线程执行、与浏览器连接无关——执行中切换菜单、整页跳转甚至刷新页面，回来后凭暂存在 sessionStorage 的任务 ID 自动恢复「进行中」状态并继续轮询，完成后自动展示结果；也可随时取消。任务结果在服务端保留 30 分钟（服务重启后任务丢失，页面会提示重新执行）。
-   - **扫描优化的 AI 执行策略**：所有 SQL 先完成毫秒级本地规则分析，AI 改写再**并发**执行（默认并发 8、单次最多 20 条、总时限 120 秒、单请求 45 秒上限）；挂死的单请求 45 秒释放名额给后续 SQL，到总时限未完成的条目自动降级本地规则改写并附超时提示。可用 `APP_AI_SCAN_CONCURRENCY` / `APP_AI_SCAN_TIMEOUT` / `APP_AI_SCAN_PER_REQUEST_TIMEOUT` 调整。
-   - **AI 失败/超时自动降级规则改写**：开启 AI 后，无论未配置模型、请求超时、连接失败、HTTP 错误还是返回为空，都不会再「什么也不变化」——自动回退到本地确定性规则改写（仅做保证语义不变的三类改写：①逗号隐式连接转 ANSI `INNER JOIN ... ON`；② HAVING 中的非聚合过滤条件下移到 WHERE；③已连接数据源时单表 `SELECT *` 按元数据展开为具体列），结果会带「规则改写」标签并逐条列出改动；没有可安全改写的写法时保留原文并给出说明。
-   - **AI 网络与代理**：连接超时（连不上，常见于公司内网直连外网受限）与响应超时（已连通但模型不返回，常见于模型繁忙、超时过短或 Base URL / 模型名填错，如火山方舟须填接入点 ID `ep-xxxx`、Base URL 为 `https://ark.cn-beijing.volces.com/api/v3`）会给出不同的错误提示。需要代理出网时设置环境变量 `HTTPS_PROXY`（或 `APP_AI_PROXY`，形如 `http://127.0.0.1:7890`）后重启；本机地址始终直连。
-2. **执行计划安全**：PostgreSQL 系使用 `EXPLAIN`（不含 ANALYZE），不会真实执行写操作。
-3. **执行计划视图**：MySQL 8 通过 `EXPLAIN FORMAT=JSON` 解析出结构化计划树（表格/树形/图形）；其他数据库回退为原始表格。
-4. **索引匹配规则**：检测已存在索引时采用"最左前缀匹配"，与数据库索引使用逻辑一致。
-5. **成本阈值**：执行计划成本 ≥10000 判为偏高才给索引建议；预估扫描行数 ≤500 判为数据量小，提示无需建索引（阈值可在 `ExplainService` 调整）。
+1. **账号与安全**：连续登录失败 5 次锁定账号 30 分钟；登录态基于 HttpSession，多浏览器互不影响；个人中心可自助修改密码。默认只监听 `127.0.0.1`，公网/局域网暴露请自行加网关鉴权。
+2. **配置持久化与加密**：数据库连接与 AI 模型均可保存多个、同一时刻各启用一个，互斥由服务端事务保证；保存在 `./data` 的 H2 文件库中，重启不丢。密码/API Key 加密存储、不回传前端，编辑时留空表示沿用原值；加密口令可用 `APP_CRYPTO_PASSWORD` / `APP_CRYPTO_SALT` 覆盖。
+3. **后台任务不惧切页**：优化与扫描点击后立即返回任务 ID，在服务端线程执行——执行中切菜单、刷新页面，回来凭任务 ID 自动恢复进度；任务结果保留 30 分钟（服务重启后失效需重新执行），可随时取消。
+4. **扫描优化的 AI 策略**：所有 SQL 先完成毫秒级本地规则分析，AI 改写再并发执行（默认并发 8、总时限 120 秒、单请求 45 秒上限）；挂死的请求按超时释放名额，到总时限未完成的条目自动降级本地规则改写并附提示。可用 `APP_AI_SCAN_CONCURRENCY` / `APP_AI_SCAN_TIMEOUT` / `APP_AI_SCAN_PER_REQUEST_TIMEOUT` 调整。
+5. **AI 失败自动降级**：开启 AI 后无论超时、连接失败、HTTP 错误还是空返回，都会自动回退本地确定性规则改写（逗号隐式连接转 ANSI JOIN、HAVING 非聚合条件前移、`SELECT *` 按元数据展开），结果带「规则改写」标签并逐条列出改动；没有可安全改写时保留原文并说明。
+6. **推理模型与思考链**：AI 改写/润色默认关闭推理模型的思考链（`enable_thinking:false` 等），让 Max Tokens 全部留给 SQL 输出，避免长 SQL 被截断或思考过长拖到超时；确需深度思考可在「AI 模型配置」编辑里关闭该开关。
+7. **AI 网络与代理**：连接超时（连不上，常见于内网直连外网受限）与响应超时（模型繁忙、Base URL / 模型名填错，火山方舟须填接入点 ID `ep-xxxx`）提示不同。需要代理出网时设置环境变量 `HTTPS_PROXY`（或 `APP_AI_PROXY`）后重启；本机地址始终直连。
+8. **执行计划安全**：PostgreSQL 系使用 `EXPLAIN`（不含 ANALYZE），不会真实执行写操作。
+9. **写回源文件**：扫描优化/转换的「一键替换」均自动生成 `.bak` 备份；仍建议在版本控制下执行，替换前先浏览 diff。
+10. **阈值可调**：执行计划成本 ≥10000 判为偏高才给索引建议；预估扫描行数 ≤500 判为小表免建索引（阈值在 `ExplainService` 调整）。
+
+## 📞 联系方式
+
+使用中遇到问题、想提需求或交流反馈，欢迎随时联系（每一条反馈我们都会认真看）：
+
+| 渠道 | 账号 |
+|------|------|
+| QQ | 817094 |
+| QQ | 2912167928 |
+| QQ 群 | 426669837 |
+| 微信 | hua47609 |
+
+也可以在 GitHub / Gitee 提 Issue：
+
+- GitHub：https://github.com/vfaner/muopt
+- Gitee：https://gitee.com/super_rgh/muopt
 
 ## ☕ 打赏支持
 
-如果这个项目对你有帮助，欢迎请我喝杯咖啡 ❤️
-
-<img src="src/main/resources/static/image/ds.png" alt="打赏二维码" width="500">
-
-> 也可在应用内左侧菜单「打赏支持」查看。
+如果这个项目对你有帮助，欢迎请作者喝杯咖啡 ❤️（应用内左侧菜单「打赏支持」可切换微信 / 支付宝 / QQ 三种方式）。
 
 ## ⭐ Star 支持
 
-觉得好用的话，欢迎给项目点个 **[Star](https://github.com/vfaner/sql-optimizer-tool)** 支持一下，这是对作者最大的鼓励！
+觉得好用的话，欢迎给项目点个 **Star** 支持一下，这是对作者最大的鼓励！
 
 ## 📄 许可证
 

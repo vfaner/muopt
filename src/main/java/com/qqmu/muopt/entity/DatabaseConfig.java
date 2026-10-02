@@ -33,16 +33,15 @@ public class DatabaseConfig {
     private String name;
 
     /**
-     * 数据库类型：
-     * mysql / mariadb / oceanbase / tidb（MySQL 驱动）
-     * postgresql / gaussdb / opengauss / kingbase / highgo / vastbase（PostgreSQL 驱动系）
-     * oracle（Oracle 驱动）
-     * sqlserver（SQL Server 驱动）
-     * db2（DB2 驱动）
-     * dameng（达梦 DmJdbcDriver18）
-     * gbase（南大通用 GBase）
-     * oscar（人大金仓神通 Oscar）
-     * yashandb（崖山 YashanDB）
+     * 数据库类型（驱动均来自 Maven 中央仓库内置，除注明外无需上传 jar）：
+     * mysql / tidb（MySQL 驱动，TiDB 兼容 MySQL 协议）
+     * mariadb（MariaDB 驱动）
+     * oceanbase（OceanBase 原厂驱动）
+     * postgresql / gaussdb（PostgreSQL 驱动，GaussDB 兼容 PG 协议）
+     * opengauss / kingbase / highgo（各自原厂驱动）
+     * oracle / sqlserver / db2 / dameng / yashandb（各自原厂驱动）
+     * vastbase / oscar（无中央仓库坐标：未填 jar 时用 PostgreSQL 兼容驱动，填 jar 后用原厂驱动）
+     * gbase（南大通用 GBase 8a，需官网驱动 jar）
      * h2（H2 内存库）
      * custom（自定义：需填写 customUrl / customDriver / customJarPath）
      */

@@ -273,6 +273,7 @@ public class ProjectScanService {
             if (optimized != null && !optimized.isBlank()) {
                 item.setOptimizedSql(optimized);
                 item.setAiOptimized(true);
+                refillAnalysisAfterAi(item);
             } else if (!applyLocalFallback(item, "AI 返回内容为空")) {
                 item.getTips().add("AI 返回内容为空，该条保留本地分析结果，可稍后重试。");
             }
@@ -285,6 +286,25 @@ public class ProjectScanService {
                 item.getTips().add("AI 优化失败：" + reason
                         + "；本地规则未发现可安全改写的写法，该条保留本地分析结果，可稍后重试。");
             }
+        }
+    }
+
+    /**
+     * AI 改写成功后，基于改写后的 SQL 重算索引建议与提示（本地分析 + 数据源核实，
+     * 毫秒~秒级），并整体替换第 ① 步针对原 SQL 生成的建议与提示——
+     * 保证展示的建议、小表驱动、基础提示全部对应用户最终看到的 SQL，
+     * 与手工优化的流水线语义一致。失败时保留改写结果与旧建议，并在提示中说明。
+     */
+    private void refillAnalysisAfterAi(ScanItem item) {
+        try {
+            OptimizeResult r = optimizerService.optimize(item.getOptimizedSql(), false);
+            item.setOptimizedSql(r.getOptimizedSql());
+            item.setIndexSuggestions(r.getIndexSuggestions());
+            item.setTips(new ArrayList<>(r.getTips()));
+        } catch (Exception e) {
+            log.debug("AI 改写后重算本地分析失败: {}", e.getMessage());
+            item.getTips().add("基于改写后 SQL 的索引分析失败（" + e.getMessage()
+                    + "），以下索引建议仍对应原始 SQL。");
         }
     }
 

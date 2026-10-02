@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='10' width='48' height='44' rx='6' fill='url(%23g)'/%3E%3Cpath d='M18 40 L28 28 L36 34 L46 20' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <title>个人中心 - MuOpt 沐优</title>
+    <link rel="stylesheet" href="/libs/element-plus.index.css">
+    <link rel="stylesheet" href="/common.css">
+    <script src="/libs/vue.global.prod.js"></script>
+    <script src="/libs/element-plus.index.full.min.js"></script>
+    <script src="/libs/axios.min.js"></script>
+    <script src="/menu-groups.js"></script>
+    <script src="/auth.js"></script>
+    <style>
+        .profile-avatar {
+            width: 88px; height: 88px; border-radius: 50%;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 42px; margin: 0 auto 16px; box-shadow: 0 10px 28px rgba(56,239,125,0.4);
+        }
+        .profile-head { text-align: center; margin-bottom: 12px; }
+        .profile-head .nick { font-size: 20px; font-weight: 600; color: #333; }
+        .profile-head .acct { font-size: 13px; color: #999; margin-top: 4px; }
+        .profile-form { max-width: 480px; margin: 0 auto; }
+        .profile-tip {
+            margin-top: 18px; padding: 12px 16px; background: #fffbe6;
+            border: 1px solid #ffe58f; border-radius: 10px; font-size: 13px; color: #ad6800; line-height: 1.7;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>MuOpt <span style="font-size:14px;font-weight:normal;">v1.1.0</span></h1>
+                <p>沐优 - SQL优化与信创转换</p>
+            </div>
+            <nav class="menu">
+                <div class="menu-group" data-group="optimize">
+                    <div class="menu-group-title">
+                        <span class="menu-icon">🚀</span><span>SQL 优化</span>
+                        <span class="menu-group-arrow">▾</span>
+                    </div>
+                    <div class="menu-group-items">
+                        <a href="/manual.html" class="menu-item">
+                            <span class="menu-icon">✏️</span><span>手工优化</span>
+                        </a>
+                        <a href="/auto.html" class="menu-item">
+                            <span class="menu-icon">🔍</span><span>扫描优化</span>
+                        </a>
+                    </div>
+                </div>
+                <div class="menu-group" data-group="convert">
+                    <div class="menu-group-title">
+                        <span class="menu-icon">🔄</span><span>SQL 转换</span>
+                        <span class="menu-group-arrow">▾</span>
+                    </div>
+                    <div class="menu-group-items">
+                        <a href="/convert-manual.html" class="menu-item">
+                            <span class="menu-icon">✏️</span><span>手工转换</span>
+                        </a>
+                        <a href="/convert-auto.html" class="menu-item">
+                            <span class="menu-icon">🔍</span><span>扫描转换</span>
+                        </a>
+                    </div>
+                </div>
+                <a href="/explain.html" class="menu-item">
+                    <span class="menu-icon">📊</span><span>SQL执行计划</span>
+                </a>
+                <a href="/datasource.html" class="menu-item">
+                    <span class="menu-icon">🔗</span><span>数据源配置</span>
+                </a>
+                <a href="/ai.html" class="menu-item">
+                    <span class="menu-icon">🤖</span><span>AI模型配置</span>
+                </a>
+                <a href="/about.html" class="menu-item">
+                    <span class="menu-icon">ℹ️</span><span>关于我们</span>
+                </a>
+                <a href="/profile.html" class="menu-item active">
+                    <span class="menu-icon">⚙️</span><span>个人中心</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="user-chip">
+                    <span class="user-avatar">👤</span>
+                    <div class="user-chip-info">
+                        <div class="user-nickname" data-user-nickname>加载中…</div>
+                        <div class="user-account" data-user-account></div>
+                    </div>
+                </div>
+                <a href="javascript:;" class="logout-link js-logout">🚪 退出登录</a>
+            </div>
+        </aside>
+
+        <div id="mobileMenuBar" style="display:none;justify-content:space-between;align-items:center;width:100%;background:#0f2027;color:white;padding:12px;position:fixed;top:0;left:0;right:0;z-index:1002;">
+            <div style="font-weight:bold;">MuOpt - SQL优化与信创转换</div>
+            <button id="mobileMenuBtn" style="background:none;border:1px solid rgba(255,255,255,0.2);color:white;padding:8px 12px;border-radius:6px;margin-left:auto;">☰ 菜单</button>
+        </div>
+        <div id="menuOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;"></div>
+
+        <div class="app-container">
+            <main class="main-content">
+                <div class="page-header">
+                    <h2>个人中心</h2>
+                    <p>查看并修改个人信息（昵称、账号、密码）</p>
+                </div>
+
+                <div class="content-card">
+                    <div class="profile-avatar">👤</div>
+                    <div class="profile-head">
+                        <div class="nick">{{ form.nickname || '—' }}</div>
+                        <div class="acct">账号：{{ form.username || '—' }}</div>
+                    </div>
+
+                    <div class="profile-form">
+                        <el-form label-position="top" @submit.prevent>
+                            <el-form-item label="昵称">
+                                <el-input v-model="form.nickname" placeholder="显示昵称" maxlength="32"></el-input>
+                            </el-form-item>
+                            <el-form-item label="账号">
+                                <el-input v-model="form.username" placeholder="登录账号" maxlength="32"></el-input>
+                            </el-form-item>
+                            <el-form-item label="新密码">
+                                <el-input v-model="form.password" type="password" show-password placeholder="留空则不修改密码"></el-input>
+                            </el-form-item>
+                            <el-form-item label="确认新密码">
+                                <el-input v-model="form.password2" type="password" show-password placeholder="再次输入新密码"></el-input>
+                            </el-form-item>
+                        </el-form>
+
+                        <el-button type="primary" size="large" style="width:100%;" @click="save" :loading="saving">
+                            💾 保存修改
+                        </el-button>
+
+                        <div class="profile-tip">
+                            ⚠️ 修改保存后将<strong>自动退出登录</strong>，需使用新的账号 / 密码重新登录。
+                            （若修改了账号，请用新账号登录；若修改了密码，请用新密码登录）
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+        createApp({
+            setup() {
+                const form = ref({ nickname: '', username: '', password: '', password2: '' });
+                const saving = ref(false);
+
+                const load = async () => {
+                    try {
+                        const resp = await axios.get('/api/auth/me');
+                        if (resp.data.code === 200 && resp.data.data) {
+                            form.value.nickname = resp.data.data.nickname || '';
+                            form.value.username = resp.data.data.username || '';
+                        }
+                    } catch (e) { /* 401 时由拦截兜底/过滤跳登录 */ }
+                };
+
+                const save = async () => {
+                    if (!form.value.nickname.trim()) {
+                        ElementPlus.ElMessage.warning('昵称不能为空');
+                        return;
+                    }
+                    if (!form.value.username.trim()) {
+                        ElementPlus.ElMessage.warning('账号不能为空');
+                        return;
+                    }
+                    if (form.value.password || form.value.password2) {
+                        if (form.value.password !== form.value.password2) {
+                            ElementPlus.ElMessage.warning('两次输入的新密码不一致');
+                            return;
+                        }
+                        if (form.value.password.length < 6) {
+                            ElementPlus.ElMessage.warning('密码长度至少 6 位');
+                            return;
+                        }
+                    }
+                    saving.value = true;
+                    try {
+                        const resp = await axios.post('/api/auth/profile', {
+                            nickname: form.value.nickname.trim(),
+                            username: form.value.username.trim(),
+                            password: form.value.password || ''
+                        });
+                        if (resp.data.code === 200) {
+                            ElementPlus.ElMessageBox.alert('个人信息已保存，系统已自动退出登录，请使用新凭据重新登录。', '保存成功', {
+                                confirmButtonText: '去登录',
+                                type: 'success',
+                                callback: () => { window.location.href = '/login.html'; }
+                            });
+                        } else {
+                            ElementPlus.ElMessage.error(resp.data.message || '保存失败');
+                        }
+                    } catch (e) {
+                        ElementPlus.ElMessage.error(e.response?.data?.message || '保存失败，请稍后重试');
+                    } finally {
+                        saving.value = false;
+                    }
+                };
+
+                onMounted(() => {
+                    load();
+                    // 移动端菜单
+                    const menuBtn = document.getElementById('mobileMenuBtn');
+                    const sidebar = document.querySelector('.sidebar');
+                    const overlay = document.getElementById('menuOverlay');
+                    if (menuBtn && sidebar && overlay) {
+                        const setMenu = (open) => {
+                            sidebar.classList.toggle('mobile-open', open);
+                            overlay.style.display = open ? 'block' : 'none';
+                            menuBtn.innerHTML = open ? '✕ 关闭' : '☰ 菜单';
+                        };
+                        menuBtn.addEventListener('click', () => setMenu(!sidebar.classList.contains('mobile-open')));
+                        overlay.addEventListener('click', () => setMenu(false));
+                        sidebar.querySelectorAll('.menu-item').forEach(a => a.addEventListener('click', () => setMenu(false)));
+                    }
+                });
+
+                return { form, saving, save };
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html>

@@ -63,6 +63,12 @@ public class ExplainService {
             if (isOracle(dbType)) {
                 // Oracle 不支持 EXPLAIN <sql>，必须先 EXPLAIN PLAN FOR 再从 DBMS_XPLAN 读回
                 runOracleExplain(conn, trimmedSql, result);
+            } else if (isSqlServer(dbType)) {
+                // SQL Server 无 EXPLAIN 关键字，用 SET SHOWPLAN_ALL ON 取表格计划
+                runSqlServerExplain(conn, trimmedSql, result);
+            } else if (isDb2(dbType)) {
+                // DB2 用 EXPLAIN PLAN FOR 写 explain 表后读回
+                runDb2Explain(conn, trimmedSql, result);
             } else {
                 fillFromQuery(conn, buildExplainSql(dbType, trimmedSql), result);
             }
@@ -89,26 +95,30 @@ public class ExplainService {
     private void fillFromQuery(Connection conn, String query, ExplainResult result) throws SQLException {
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery(query)) {
-
-            ResultSetMetaData meta = rs.getMetaData();
-            int colCount = meta.getColumnCount();
-            for (int i = 1; i <= colCount; i++) {
-                result.getHeaders().add(meta.getColumnLabel(i));
-            }
-
-            StringBuilder rawPlan = new StringBuilder();
-            while (rs.next()) {
-                ExplainRow row = new ExplainRow();
-                for (int i = 1; i <= colCount; i++) {
-                    Object val = rs.getObject(i);
-                    row.put(meta.getColumnLabel(i), val);
-                    rawPlan.append(val).append("\t");
-                }
-                rawPlan.append("\n");
-                result.getRows().add(row);
-            }
-            result.setRawPlan(rawPlan.toString().trim());
+            collect(rs, result);
         }
+    }
+
+    /** 从已就绪的结果集收集表头、数据行与原始计划文本（列出全列便于人工核对） */
+    private void collect(ResultSet rs, ExplainResult result) throws SQLException {
+        ResultSetMetaData meta = rs.getMetaData();
+        int colCount = meta.getColumnCount();
+        for (int i = 1; i <= colCount; i++) {
+            result.getHeaders().add(meta.getColumnLabel(i));
+        }
+
+        StringBuilder rawPlan = new StringBuilder();
+        while (rs.next()) {
+            ExplainRow row = new ExplainRow();
+            for (int i = 1; i <= colCount; i++) {
+                Object val = rs.getObject(i);
+                row.put(meta.getColumnLabel(i), val);
+                rawPlan.append(val).append("\t");
+            }
+            rawPlan.append("\n");
+            result.getRows().add(row);
+        }
+        result.setRawPlan(rawPlan.toString().trim());
     }
 
     /**
@@ -131,8 +141,59 @@ public class ExplainService {
                 result);
     }
 
+    /**
+     * SQL Server 执行计划：SET SHOWPLAN_ALL ON 后执行 SQL 仅返回计划表格（不真正执行），
+     * 最后务必恢复 OFF。输出列含 EstimateRows / TotalSubtreeCost，供成本解析使用。
+     */
+    private void runSqlServerExplain(Connection conn, String sql, ExplainResult result) throws SQLException {
+        try (Statement st = conn.createStatement()) {
+            st.execute("SET SHOWPLAN_ALL ON");
+            try {
+                boolean hasRs = st.execute(sql);
+                if (hasRs) {
+                    try (ResultSet rs = st.getResultSet()) {
+                        collect(rs, result);
+                    }
+                }
+            } finally {
+                try {
+                    st.execute("SET SHOWPLAN_ALL OFF");
+                } catch (SQLException ignored) {
+                    // 即便关闭失败也不影响本次结果，连接关闭时会话级选项自动复位
+                }
+            }
+        }
+    }
+
+    /**
+     * DB2 执行计划：EXPLAIN PLAN FOR 写入 explain 表，再从 SYSTOOLS.EXPLAIN_STATEMENT 读回。
+     * 若 SYSTOOLS 表不存在则回退默认 schema 的 EXPLAIN_STATEMENT；
+     * 都不存在说明当前库未创建 explain 表，抛出友好提示（需 @?/misc/EXPLAIN.DDL 建表）。
+     */
+    private void runDb2Explain(Connection conn, String sql, ExplainResult result) throws SQLException {
+        try (Statement st = conn.createStatement()) {
+            st.execute("EXPLAIN PLAN FOR " + sql);
+        }
+        try {
+            fillFromQuery(conn, "SELECT STATEMENT_TEXT AS PLAN_TEXT, TOTAL_COST "
+                    + "FROM SYSTOOLS.EXPLAIN_STATEMENT FETCH FIRST 20 ROWS ONLY", result);
+        } catch (SQLException e) {
+            String fallback = "SELECT STATEMENT_TEXT AS PLAN_TEXT, TOTAL_COST "
+                    + "FROM EXPLAIN_STATEMENT FETCH FIRST 20 ROWS ONLY";
+            fillFromQuery(conn, fallback, result);
+        }
+    }
+
     private boolean isOracle(String dbType) {
         return "oracle".equals(dbType);
+    }
+
+    private boolean isSqlServer(String dbType) {
+        return dbType.equals("sqlserver") || dbType.equals("sqlserver2017") || dbType.equals("sqlserver2019");
+    }
+
+    private boolean isDb2(String dbType) {
+        return dbType.equals("db2");
     }
 
     /**
@@ -149,7 +210,7 @@ public class ExplainService {
     }
 
     private boolean isMysqlFamily(String dbType) {
-        return dbType.equals("mysql") || dbType.equals("oceanbase") || dbType.equals("tidb");
+        return dbType.equals("mysql") || dbType.equals("mariadb") || dbType.equals("oceanbase") || dbType.equals("tidb");
     }
 
     /**
@@ -338,7 +399,7 @@ public class ExplainService {
      */
     private void parseCostAndRows(String dbType, ExplainResult result) {
         // MySQL 系：rows 列
-        if (dbType.equals("mysql") || dbType.equals("oceanbase") || dbType.equals("tidb")) {
+        if (isMysqlFamily(dbType)) {
             long maxRows = 0;
             for (ExplainRow row : result.getRows()) {
                 Object rowsVal = findValueIgnoreCase(row, "rows");
@@ -361,6 +422,18 @@ public class ExplainService {
         // Oracle：DBMS_XPLAN 的竖线表格，按表头定位 Rows / Cost 列
         if (isOracle(dbType)) {
             parseOraclePlanText(result);
+            return;
+        }
+
+        // SQL Server：SHOWPLAN_ALL 表格，取 TotalSubtreeCost / EstimateRows 列最大值
+        if (isSqlServer(dbType)) {
+            parseSqlServerPlan(result);
+            return;
+        }
+
+        // DB2：explain 表，取 TOTAL_COST 列最大值
+        if (isDb2(dbType)) {
+            parseDb2Plan(result);
             return;
         }
 
@@ -444,6 +517,59 @@ public class ExplainService {
         };
     }
 
+    /** SQL Server 计划：TotalSubtreeCost 是累积成本，EstimateRows 是预估行数，均取最大（根节点） */
+    private void parseSqlServerPlan(ExplainResult result) {
+        double maxCost = 0;
+        long maxRows = 0;
+        for (ExplainRow row : result.getRows()) {
+            Object cost = findValueIgnoreCase(row, "TotalSubtreeCost");
+            if (cost != null) {
+                maxCost = Math.max(maxCost, asDouble(cost));
+            }
+            Object rows = findValueIgnoreCase(row, "EstimateRows");
+            if (rows != null) {
+                maxRows = Math.max(maxRows, asLong(rows));
+            }
+        }
+        if (maxCost > 0) {
+            result.setTotalCost(maxCost);
+        }
+        if (maxRows > 0) {
+            result.setEstimatedRows(maxRows);
+        }
+    }
+
+    /** DB2 计划：TOTAL_COST 为成本，取最大值 */
+    private void parseDb2Plan(ExplainResult result) {
+        double maxCost = 0;
+        for (ExplainRow row : result.getRows()) {
+            Object cost = findValueIgnoreCase(row, "TOTAL_COST");
+            if (cost != null) {
+                maxCost = Math.max(maxCost, asDouble(cost));
+            }
+        }
+        if (maxCost > 0) {
+            result.setTotalCost(maxCost);
+        }
+    }
+
+    private double asDouble(Object v) {
+        try {
+            return Double.parseDouble(v.toString().trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private long asLong(Object v) {
+        try {
+            // SQL Server 的 EstimateRows 可能是小数或科学计数，先按 double 解析再取整
+            return (long) Double.parseDouble(v.toString().trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
     private Double extractPgCost(String line) {
         // 匹配 cost=0.00..12345.67，取上界
         java.util.regex.Matcher m = java.util.regex.Pattern
@@ -494,6 +620,20 @@ public class ExplainService {
             // 计划树中的 access_type 同样只做精确比较
             for (PlanNode node : result.getPlanTree()) {
                 if (hasFullScanNode(node)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        // SQL Server：SHOWPLAN_ALL 的 PhysicalOp 列，全表/聚簇全扫描即全表扫描
+        if (isSqlServer(result.getDbType())) {
+            for (ExplainRow row : result.getRows()) {
+                Object op = findValueIgnoreCase(row, "PhysicalOp");
+                if (op == null) {
+                    op = findValueIgnoreCase(row, "LogicalOp");
+                }
+                if (op != null && ("Table Scan".equalsIgnoreCase(op.toString().trim())
+                        || "Clustered Index Scan".equalsIgnoreCase(op.toString().trim()))) {
                     return true;
                 }
             }

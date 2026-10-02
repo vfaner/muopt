@@ -13,7 +13,7 @@
 
     <groupId>com.qqmu</groupId>
     <artifactId>muopt</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <packaging>jar</packaging>
 
     <name>MuOpt</name>
@@ -124,25 +124,51 @@
             <version>11.5.8.0</version>
         </dependency>
         <dependency>
+            <groupId>com.microsoft.sqlserver</groupId>
+            <artifactId>mssql-jdbc</artifactId>
+            <version>12.10.2.jre11</version>
+        </dependency>
+        <dependency>
+            <groupId>com.dameng</groupId>
+            <artifactId>DmJdbcDriver18</artifactId>
+            <version>8.1.3.140</version>
+        </dependency>
+        <dependency>
+            <groupId>com.oceanbase</groupId>
+            <artifactId>oceanbase-client</artifactId>
+            <version>2.4.19</version>
+        </dependency>
+        <dependency>
+            <groupId>com.highgo</groupId>
+            <artifactId>HgdbJdbc</artifactId>
+            <version>6.2.5</version>
+        </dependency>
+        <dependency>
+            <groupId>com.yashandb</groupId>
+            <artifactId>yashandb-jdbc</artifactId>
+            <version>1.10.7</version>
+        </dependency>
+        <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
 
         <!-- ========================================
-             其他数据库说明：
+             驱动内置说明：
              ========================================
-             1. SQL Server / 达梦 DM8 / 信创数据库（瀚高/海量/GBase/Oscar/YashanDB）
-                / OceanBase / TiDB：需从官网下载驱动 jar
-                或通过「自定义数据库」功能上传 jar 并配置 JDBC URL
+             1. 以上驱动均来自 Maven 中央仓库，打包即内置，页面无需上传 jar；
+                每个数据源仍可填写「驱动 jar 路径」用官方新版/定制驱动覆盖内置版本
 
-             2. 所有支持 JDBC 的数据库均可通过「自定义数据库」直接使用，
-                无需在 pom.xml 中添加依赖，支持动态加载驱动
+             2. 无中央仓库坐标的类型走兼容或外置策略：
+                - TiDB      兼容 MySQL 协议，直接用 mysql-connector-j
+                - GaussDB   兼容 PostgreSQL 协议，直接用 postgresql 驱动
+                - 海量 Vastbase / 神通 Oscar：默认用 PostgreSQL 兼容协议驱动尝试连接，
+                  连不上时在数据源里填官网驱动 jar 路径替换
+                - 南大通用 GBase 8a：官网下载驱动 jar 后填写路径（8s 可用「自定义」类型）
 
-             3. 已支持数据库类型：
-                MySQL / MariaDB / Oracle / DB2 / PostgreSQL / openGauss / KingBase / H2
-                SQL Server / 达梦 DM8 / OceanBase / TiDB
-                瀚高(HighGo) / 海量(Vastbase) / GBase / Oscar / YashanDB
+             3. 所有支持 JDBC 的数据库均可通过「自定义」类型动态加载驱动，
+                无需在 pom.xml 中添加依赖
         -->
 
         <!-- Spring Boot Test -->
@@ -154,6 +180,10 @@
     </dependencies>
 
     <build>
+        <!-- 产物固定名 muopt.jar（不带版本号）：自更新是"下载新 jar 覆盖当前 jar 同一路径"，
+             带版本号会在升级后出现"文件名 1.1.0、内容 1.2.0"的名实不符；版本号由 pom version
+             打进应用并在关于页展示，release 用 tag 标版本 -->
+        <finalName>muopt</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

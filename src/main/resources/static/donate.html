@@ -9,37 +9,86 @@
     <link rel="stylesheet" href="/common.css">
     <script src="/libs/vue.global.prod.js"></script>
     <script src="/libs/element-plus.index.full.min.js"></script>
+    <script src="/menu-groups.js"></script>
+    <script src="/auth.js"></script>
 </head>
 <body>
     <div id="app">
-        <div class="app-container">
-            <aside class="sidebar">
-                <div class="sidebar-header">
-                    <h1>SQL优化工具</h1>
-                    <p>智能索引建议与执行计划分析</p>
-                </div>
-                <nav class="menu">
-                    <a href="/manual.html" class="menu-item">
-                        <span class="menu-icon">✏️</span><span>手工优化</span>
-                    </a>
-                    <a href="/auto.html" class="menu-item">
-                        <span class="menu-icon">🔍</span><span>扫描优化</span>
-                    </a>
-                    <a href="/explain.html" class="menu-item">
-                        <span class="menu-icon">📊</span><span>SQL执行计划</span>
-                    </a>
-                    <a href="/datasource.html" class="menu-item">
-                        <span class="menu-icon">🔗</span><span>配置数据源</span>
-                    </a>
-                    <a href="/ai.html" class="menu-item">
-                        <span class="menu-icon">🤖</span><span>AI 模型</span>
-                    </a>
-                    <a href="/donate.html" class="menu-item active">
-                        <span class="menu-icon">☕</span><span>打赏支持</span>
-                    </a>
-                </nav>
-            </aside>
+        <!-- 移动端汉堡菜单按钮（z-index 高于菜单与遮罩，展开后仍可点击关闭） -->
+        <div id="mobileMenuBar" style="display:none;justify-content:space-between;align-items:center;width:100%;background:#0f2027;color:white;padding:12px;position:fixed;top:0;left:0;right:0;z-index:1002;">
+            <div style="font-weight:bold;">MuOpt - SQL优化与信创转换</div>
+            <button id="mobileMenuBtn" style="background:none;border:1px solid rgba(255,255,255,0.2);color:white;padding:8px 12px;border-radius:6px;margin-left:auto;">
+                ☰ 菜单
+            </button>
+        </div>
 
+        <!-- 移动端遮罩层 -->
+        <div id="menuOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;"></div>
+
+        <!-- 左侧菜单 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>MuOpt <span style="font-size:14px;font-weight:normal;">v1.1.0</span></h1>
+                <p>沐优 - SQL优化与信创转换</p>
+            </div>
+            <nav class="menu">
+                <div class="menu-group" data-group="optimize">
+                    <div class="menu-group-title">
+                        <span class="menu-icon">🚀</span><span>SQL 优化</span>
+                        <span class="menu-group-arrow">▾</span>
+                    </div>
+                    <div class="menu-group-items">
+                        <a href="/manual.html" class="menu-item">
+                            <span class="menu-icon">✏️</span><span>手工优化</span>
+                        </a>
+                        <a href="/auto.html" class="menu-item">
+                            <span class="menu-icon">🔍</span><span>扫描优化</span>
+                        </a>
+                    </div>
+                </div>
+                <div class="menu-group" data-group="convert">
+                    <div class="menu-group-title">
+                        <span class="menu-icon">🔄</span><span>SQL 转换</span>
+                        <span class="menu-group-arrow">▾</span>
+                    </div>
+                    <div class="menu-group-items">
+                        <a href="/convert-manual.html" class="menu-item">
+                            <span class="menu-icon">✏️</span><span>手工转换</span>
+                        </a>
+                        <a href="/convert-auto.html" class="menu-item">
+                            <span class="menu-icon">🔍</span><span>扫描转换</span>
+                        </a>
+                    </div>
+                </div>
+                <a href="/explain.html" class="menu-item">
+                    <span class="menu-icon">📊</span><span>SQL执行计划</span>
+                </a>
+                <a href="/datasource.html" class="menu-item">
+                    <span class="menu-icon">🔗</span><span>数据源配置</span>
+                </a>
+                <a href="/ai.html" class="menu-item">
+                    <span class="menu-icon">🤖</span><span>AI模型配置</span>
+                </a>
+                <a href="/about.html" class="menu-item">
+                    <span class="menu-icon">ℹ️</span><span>关于我们</span>
+                </a>
+                <a href="/profile.html" class="menu-item">
+                    <span class="menu-icon">⚙️</span><span>个人中心</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="user-chip">
+                    <span class="user-avatar">👤</span>
+                    <div class="user-chip-info">
+                        <div class="user-nickname" data-user-nickname>加载中…</div>
+                        <div class="user-account" data-user-account></div>
+                    </div>
+                </div>
+                <a href="javascript:;" class="logout-link js-logout">🚪 退出登录</a>
+            </div>
+        </aside>
+
+        <div class="app-container">
             <main class="main-content">
                 <div class="page-header">
                     <h2>打赏支持</h2>
@@ -50,12 +99,17 @@
                     <div style="font-size:16px;color:#333;line-height:1.8;margin-bottom:20px;">
                         如果这个项目对你有帮助，欢迎请我喝杯咖啡 ☕
                     </div>
-                    <img src="/image/ds.png" alt="打赏二维码"
-                         style="max-width:420px;width:100%;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.12);"
-                         onerror="this.style.display='none';document.getElementById('img-fallback').style.display='block';">
-                    <div id="img-fallback" style="display:none;color:#999;font-size:13px;padding:40px;border:1px dashed #ddd;border-radius:12px;">
-                        二维码图片未找到，请将图片放置于 <code>resources/static/image/ds.png</code>
+
+                    <div style="margin-bottom:20px;display:flex;justify-content:center;gap:12px;flex-wrap:wrap;">
+                        <el-button :type="payType === 'wechat' ? 'primary' : 'default'" size="large" @click="switchPay('wechat')">微信</el-button>
+                        <el-button :type="payType === 'alipay' ? 'primary' : 'default'" size="large" @click="switchPay('alipay')">支付宝</el-button>
+                        <el-button :type="payType === 'qq' ? 'primary' : 'default'" size="large" @click="switchPay('qq')">QQ</el-button>
                     </div>
+
+                    <img :src="payQr" :alt="payTip"
+                         style="max-width:420px;width:100%;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.12);object-fit:contain;">
+                    <div style="margin-top:16px;font-size:14px;color:#666;">{{ payTip }}</div>
+
                     <div style="margin-top:24px;padding-top:20px;border-top:1px solid #f0f0f0;">
                         <div style="font-size:15px;color:#333;margin-bottom:12px;">
                             ⭐ 觉得好用的话，也欢迎给项目点个 Star 支持一下！
@@ -68,12 +122,43 @@
     </div>
 
     <script>
-        const { createApp } = Vue;
+        const { createApp, ref, computed, onMounted } = Vue;
         createApp({
             setup() {
-                const repoUrl = 'https://github.com/vfaner/sql-optimizer-tool';
+                const repoUrl = 'https://github.com/vfaner/muopt';
                 const goStar = () => window.open(repoUrl, '_blank');
-                return { goStar };
+
+                // 打赏支付方式：微信 / 支付宝 / QQ，切换时联动更新二维码与提示文字
+                const payType = ref('wechat');
+                const payOptions = {
+                    wechat: { img: '/image/wechat.webp', tip: '用微信扫一扫' },
+                    alipay: { img: '/image/alipay.webp', tip: '用支付宝扫一扫' },
+                    qq: { img: '/image/qq.webp', tip: '用 QQ 扫一扫' }
+                };
+                const payQr = computed(() => payOptions[payType.value].img);
+                const payTip = computed(() => payOptions[payType.value].tip);
+                const switchPay = (type) => { payType.value = type; };
+
+                onMounted(() => {
+                    // 移动端菜单控制：点击展开/收起，按钮图标联动切换
+                    const menuBtn = document.getElementById('mobileMenuBtn');
+                    const sidebar = document.querySelector('.sidebar');
+                    const overlay = document.getElementById('menuOverlay');
+
+                    if (menuBtn && sidebar && overlay) {
+                        const setMenu = (open) => {
+                            sidebar.classList.toggle('mobile-open', open);
+                            overlay.style.display = open ? 'block' : 'none';
+                            menuBtn.innerHTML = open ? '✕ 关闭' : '☰ 菜单';
+                        };
+                        menuBtn.addEventListener('click', () => setMenu(!sidebar.classList.contains('mobile-open')));
+                        overlay.addEventListener('click', () => setMenu(false));
+                        sidebar.querySelectorAll('.menu-item').forEach(a =>
+                            a.addEventListener('click', () => setMenu(false)));
+                    }
+                });
+
+                return { goStar, payType, payQr, payTip, switchPay };
             }
         }).use(ElementPlus).mount('#app');
     </script>

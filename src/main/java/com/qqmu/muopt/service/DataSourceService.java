@@ -302,6 +302,51 @@ public class DataSourceService {
         return drops;
     }
 
+    /** 当前数据源是否 MySQL 家族（information_schema 方言一致） */
+    private boolean isMysqlFamily() {
+        String type = currentConfig != null && currentConfig.getDbType() != null
+                ? currentConfig.getDbType().toLowerCase() : "";
+        return switch (type) {
+            case "mysql", "mariadb", "oceanbase", "tidb" -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * information_schema.TABLES 的 TABLE_ROWS 是引擎估算值（InnoDB 有偏差但数量级可靠），
+     * 毫秒返回；查不到或失败返回 -1，由调用方回退 COUNT(*)。
+     * 大小表驱动判断用的是 10 倍阈值，估算值完全够用。
+     */
+    private long estimateRowsMysql(String table) {
+        for (String t : distinctNames(table)) {
+            String bare = stripQuotes(t);
+            String schema = null;
+            String tableName = bare;
+            int dot = bare.lastIndexOf('.');
+            if (dot >= 0) {
+                schema = bare.substring(0, dot);
+                tableName = bare.substring(dot + 1);
+            }
+            String sql = "SELECT TABLE_ROWS FROM information_schema.TABLES WHERE TABLE_NAME = '"
+                    + tableName.replace("'", "''") + "'"
+                    + (schema != null
+                            ? " AND TABLE_SCHEMA = '" + schema.replace("'", "''") + "'"
+                            : " AND TABLE_SCHEMA = DATABASE()");
+            try (Connection conn = dataSource.getConnection();
+                 Statement st = conn.createStatement()) {
+                st.setQueryTimeout(2);
+                try (ResultSet rs = st.executeQuery(sql)) {
+                    if (rs.next()) {
+                        return rs.getLong(1);
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("估算表 {} 行数失败: {}", t, e.getMessage());
+            }
+        }
+        return -1;
+    }
+
     /** DROP INDEX 语法按方言区分：MySQL 系需要 ON 表名，PG/Oracle 系不需要 */
     private String buildDropIndex(String indexName, String table) {
         String type = currentConfig != null && currentConfig.getDbType() != null
@@ -347,11 +392,19 @@ public class DataSourceService {
 
     /**
      * 统计表的估算行数（用于大小表驱动判断）。失败返回 -1。
-     * 加查询超时，避免在大表上把用户的库拖死。
+     * MySQL 系优先走 information_schema 估算（毫秒级）：
+     * 大表 SELECT COUNT(*) 要扫全表，单张表就能把一次优化拖上几十秒；
+     * 其他库保留 COUNT(*)（带查询超时，避免把用户的库拖死）。
      */
     public long countTableRows(String table) {
         if (!isConnected()) {
             return -1;
+        }
+        if (isMysqlFamily()) {
+            long estimated = estimateRowsMysql(table);
+            if (estimated >= 0) {
+                return estimated;
+            }
         }
         for (String t : distinctNames(table)) {
             String sql = "SELECT COUNT(*) FROM " + quoteIdentifier(t);
@@ -539,29 +592,37 @@ public class DataSourceService {
             return c.getCustomDriver().trim();
         }
         return switch (dbType.toLowerCase()) {
-            // MySQL 系：MySQL / MariaDB / OceanBase / TiDB
-            case "mysql", "oceanbase", "tidb" -> "com.mysql.cj.jdbc.Driver";
+            // MySQL 系：MySQL / MariaDB / TiDB（TiDB 兼容 MySQL 协议）
+            case "mysql", "tidb" -> "com.mysql.cj.jdbc.Driver";
             case "mariadb" -> "org.mariadb.jdbc.Driver";
+            case "oceanbase" -> "com.oceanbase.jdbc.Driver";
 
-            // PostgreSQL 系：PostgreSQL / openGauss / GaussDB / KingBase / 瀚高(HighGo) / 海量(Vastbase)
+            // PostgreSQL 系：PostgreSQL / openGauss / GaussDB / KingBase / 瀚高(HighGo)
             case "postgresql", "gaussdb" -> "org.postgresql.Driver";
             case "opengauss" -> "org.opengauss.Driver";
             case "kingbase" -> "com.kingbase8.Driver";
-            case "highgo" -> "com.highgo.Driver";
-            case "vastbase" -> "com.vastbase.Driver";
+            case "highgo" -> "com.highgo.jdbc.Driver";
+            // 海量/神通无中央仓库驱动：未提供 jar 时用 PostgreSQL 兼容协议驱动先试，
+            // 连不上再由用户在数据源里填官网驱动 jar 覆盖
+            case "vastbase" -> hasExternalJar(c) ? "com.vastbase.Driver" : "org.postgresql.Driver";
+            case "oscar" -> hasExternalJar(c) ? "com.oscar.OscarDriver" : "org.postgresql.Driver";
 
             // 其他数据库
             case "oracle" -> "oracle.jdbc.OracleDriver";
             case "sqlserver", "sqlserver2017", "sqlserver2019" -> "com.microsoft.sqlserver.jdbc.SQLServerDriver";
-            case "db2" -> "com.ibm.db2.jdbc.app.DB2Driver";
+            case "db2" -> "com.ibm.db2.jcc.DB2Driver";
             case "dameng", "dm" -> "dm.jdbc.driver.DmDriver";
             case "gbase" -> "com.gbase.jdbc.Driver";
-            case "oscar" -> "com.oscar.OscarDriver";
-            case "yashandb" -> "com.yashandb.YashandbDriver";
+            case "yashandb" -> "com.yashandb.jdbc.Driver";
             case "h2" -> "org.h2.Driver";
 
             default -> throw new IllegalArgumentException("不支持的数据库类型: " + dbType);
         };
+    }
+
+    /** 用户是否提供了外置驱动 jar（提供则用原厂驱动与原生协议，否则用内置/兼容驱动） */
+    private boolean hasExternalJar(DatabaseConfig c) {
+        return StringUtils.hasText(c.getCustomJarPath());
     }
 
     private String buildJdbcUrl(DatabaseConfig c) {
@@ -570,12 +631,14 @@ public class DataSourceService {
             case "custom" -> c.getCustomUrl().trim();
 
             // MySQL 系
-            case "mysql", "oceanbase", "tidb" ->
+            case "mysql", "tidb" ->
                     "jdbc:mysql://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName()
                             + "?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true";
             case "mariadb" ->
                     "jdbc:mariadb://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName()
                             + "?useSSL=false&serverTimezone=Asia/Shanghai";
+            case "oceanbase" ->
+                    "jdbc:oceanbase://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
 
             // PostgreSQL 系
             case "postgresql", "gaussdb" ->
@@ -586,8 +649,13 @@ public class DataSourceService {
                     "jdbc:kingbase8://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
             case "highgo" ->
                     "jdbc:highgo://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
-            case "vastbase" ->
-                    "jdbc:vastbase://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+            // 与驱动选择对应：有外置 jar 用原生协议，否则走 PostgreSQL 兼容协议
+            case "vastbase" -> hasExternalJar(c)
+                    ? "jdbc:vastbase://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName()
+                    : "jdbc:postgresql://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
+            case "oscar" -> hasExternalJar(c)
+                    ? "jdbc:oscar://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName()
+                    : "jdbc:postgresql://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
 
             // 其他数据库
             case "oracle" ->
@@ -603,8 +671,6 @@ public class DataSourceService {
                             ? "" : "?schema=" + c.getDatabaseName());
             case "gbase" ->
                     "jdbc:gbase://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
-            case "oscar" ->
-                    "jdbc:oscar://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
             case "yashandb" ->
                     "jdbc:yashandb://" + c.getHost() + ":" + c.getPort() + "/" + c.getDatabaseName();
             case "h2" ->
