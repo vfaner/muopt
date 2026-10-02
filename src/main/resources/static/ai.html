@@ -236,9 +236,15 @@
                     return e.response?.data?.message || e.message || fallback;
                 }
 
+                // lastTestAt 是 Instant 序列化的 UTC ISO 串，必须过 Date 转本地时区，
+                // 直接截字符串会把 UTC 墙钟时间原样显示（东八区看起来慢 8 小时）
                 function formatTime(iso) {
                     if (!iso) return '';
-                    return iso.replace('T', ' ').substring(0, 16);
+                    const d = new Date(iso);
+                    if (isNaN(d.getTime())) return iso.replace('T', ' ').substring(0, 16);
+                    const p = (n) => String(n).padStart(2, '0');
+                    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+                        + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
                 }
 
                 const fetchList = async () => {
