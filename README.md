@@ -171,7 +171,7 @@ java -jar muopt.jar --server.port=8080 --server.address=0.0.0.0
 | QQ | 817094 |
 | QQ | 2912167928 |
 | QQ 群 | 426669837 |
-| 微信 | hua47609 |
+| 微信 | qqmu66 |
 
 也可以在 GitHub / Gitee 提 Issue：
 

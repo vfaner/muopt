@@ -171,7 +171,7 @@ Questions, feature requests and feedback are all welcome:
 | QQ | 817094 |
 | QQ | 2912167928 |
 | QQ Group | 426669837 |
-| WeChat | hua47609 |
+| WeChat | qqmu66 |
 
 Issues are welcome on GitHub / Gitee:
 
