@@ -2,9 +2,9 @@
 
 [中文](README.md) | **English**
 
-> 🎬 **Demo video (Bilibili, Chinese narration)**: [开源SQL优化神器：一键扫描项目代码，智能补全索引，还支持可视化执行计划！](https://www.bilibili.com/video/BV1vVYm6yEhf)
+> 🎬 **Demo video (Bilibili, Chinese narration)**: [内网信创迁移神器！MuOpt 沐优：SQL 智能优化 + 18 种国产数据库方言转换，单个 Jar 包开箱即用！](https://www.bilibili.com/video/BV1vVYm6yEhf)
 >
-> <a href="https://www.bilibili.com/video/BV1vVYm6yEhf"><img src="docs/demo-video-cover.jpg" alt="MuOpt demo video" width="760"></a>
+> <a href="https://www.bilibili.com/video/BV1vVYm6yEhf"><img src="docs/muopt.png" alt="MuOpt demo video" width="760"></a>
 
 ## 💡 Background
 
