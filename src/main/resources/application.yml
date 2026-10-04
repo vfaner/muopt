@@ -12,13 +12,15 @@ spring:
   # 配置库：保存多个数据库连接与 AI 模型配置（H2 文件库）。
   # 文件位置默认 ./data（相对于启动时的工作目录），可用环境变量
   # APP_DATA_DIR 指向固定绝对路径，避免不同启动方式各建一份库。
+  # 库文件名已由 sql-optimizer 更名为 muopt；旧库文件由 LegacyDataMigration
+  # 在启动时（DataSource 创建前）自动改名迁移，老用户升级不丢配置。
   datasource:
-    url: jdbc:h2:file:${app.data.dir}/sql-optimizer;MODE=MySQL;AUTO_SERVER=TRUE
+    url: jdbc:h2:file:${app.data.dir}/muopt;MODE=MySQL;AUTO_SERVER=TRUE
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
     hikari:
-      pool-name: sql-optimizer-meta
+      pool-name: muopt-meta
       maximum-pool-size: 5
   jpa:
     hibernate:
@@ -34,6 +36,8 @@ app:
   data:
     dir: ${APP_DATA_DIR:./data}
   crypto:
+    # 注意：默认口令是密钥推导材料，老库里已加密的数据源密码 / AI Key 都依赖它，
+    # 改名会导致升级后全部无法解密——保留历史值，勿随产品更名同步改动。
     password: ${APP_CRYPTO_PASSWORD:sql-optimizer-default-key-change-me}
     salt: ${APP_CRYPTO_SALT:7d2f91a4c6b80e3f}
   ai:
@@ -47,7 +51,5 @@ app:
     proxy: ${APP_AI_PROXY:}
 
 logging:
-  level:
-    com.sqloptimizer: DEBUG
   file:
-    name: logs/sql-optimizer.log
+    name: logs/muopt.log

@@ -523,7 +523,7 @@ public class DataSourceService {
         hc.setMaximumPoolSize(3);
         hc.setConnectionTimeout(8000);
         hc.setInitializationFailTimeout(8000);
-        hc.setPoolName("sql-optimizer-ds-" + (config.getId() == null ? "tmp" : config.getId()));
+        hc.setPoolName("muopt-ds-" + (config.getId() == null ? "tmp" : config.getId()));
 
         HikariDataSource ds = null;
         ClassLoader previousLoader = Thread.currentThread().getContextClassLoader();
