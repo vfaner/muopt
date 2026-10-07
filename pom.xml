@@ -162,7 +162,8 @@
     </dependencies>
 
     <build>
-        <!-- 资源处理：sidebar.js 走 filtering 注入版本号（@project.version@），其余资源原样拷贝。
+        <!-- 资源处理：application.yml 与 sidebar.js 走 filtering 注入版本号（@project.version@，
+             parent 已把过滤分隔符限定为 @..@，不会动 yml 里的 ${} 占位符），其余资源原样拷贝。
              一旦自定义 <resources>，spring-boot-starter-parent 的默认资源配置即被覆盖，
              故两条都要显式声明。 -->
         <resources>
@@ -170,6 +171,7 @@
                 <directory>src/main/resources</directory>
                 <filtering>true</filtering>
                 <includes>
+                    <include>application.yml</include>
                     <include>static/sidebar.js</include>
                 </includes>
             </resource>
@@ -177,6 +179,7 @@
                 <directory>src/main/resources</directory>
                 <filtering>false</filtering>
                 <excludes>
+                    <exclude>application.yml</exclude>
                     <exclude>static/sidebar.js</exclude>
                 </excludes>
             </resource>
