@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qqmu.muopt.common.ExplainResult;
 import com.qqmu.muopt.common.ExplainRow;
 import com.qqmu.muopt.common.IndexSuggestion;
+import com.qqmu.muopt.util.IndexDdl;
 import com.qqmu.muopt.common.PlanNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -704,20 +705,10 @@ public class ExplainService {
             List<IndexSuggestion> suggestions = indexAnalyzer.analyze(originalSql);
             dataSourceService.detectIndexExistence(suggestions);
             for (IndexSuggestion s : suggestions) {
-                fillCreateSql(s);
+                IndexDdl.fill(s);
             }
             result.setIndexSuggestions(suggestions);
         }
     }
 
-    private void fillCreateSql(IndexSuggestion s) {
-        String idxName = "idx_" + s.getTableName().toLowerCase() + "_"
-                + String.join("_", s.getColumns()).toLowerCase();
-        if (idxName.length() > 60) {
-            idxName = idxName.substring(0, 60);
-        }
-        s.setIndexName(idxName);
-        s.setCreateSql("CREATE INDEX " + idxName + " ON " + s.getTableName()
-                + " (" + String.join(", ", s.getColumns()) + ");");
-    }
 }

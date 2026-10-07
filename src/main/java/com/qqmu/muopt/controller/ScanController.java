@@ -43,7 +43,8 @@ public class ScanController {
         if (request.getProjectPath() == null || request.getProjectPath().trim().isEmpty()) {
             return Result.error(400, "项目目录不能为空");
         }
-        String jobId = jobManager.start(request.getProjectPath().trim(), request.isEnableAi());
+        String jobId = jobManager.start(
+                new ScanJobManager.Task(request.getProjectPath().trim(), request.isEnableAi()));
         return Result.success(new StartResponse(jobId));
     }
 
@@ -53,7 +54,7 @@ public class ScanController {
      */
     @GetMapping("/jobs/{jobId}")
     public Result<JobView> jobStatus(@PathVariable String jobId) {
-        ScanJobManager.Job job = jobManager.get(jobId);
+        com.qqmu.muopt.service.job.Job<ScanJobManager.Task, List<ScanItem>> job = jobManager.get(jobId);
         if (job == null) {
             return Result.error(404, "扫描任务不存在或已过期（服务可能重启过），请重新扫描");
         }
@@ -189,15 +190,15 @@ public class ScanController {
         private Integer itemCount;
         private List<ScanItem> result;
 
-        static JobView of(ScanJobManager.Job job) {
+        static JobView of(com.qqmu.muopt.service.job.Job<ScanJobManager.Task, List<ScanItem>> job) {
             JobView v = new JobView();
             v.jobId = job.getJobId();
             v.status = job.getStatus();
             v.message = job.getMessage();
             v.startedAt = job.getStartedAt();
             v.finishedAt = job.getFinishedAt();
-            v.projectPath = job.getProjectPath();
-            v.enableAi = job.isEnableAi();
+            v.projectPath = job.getParams().projectPath();
+            v.enableAi = job.getParams().enableAi();
             v.itemCount = job.getItemCount();
             // 只有成功结束才返回结果；运行中/失败/取消都不带大对象
             if ("SUCCESS".equals(job.getStatus())) {

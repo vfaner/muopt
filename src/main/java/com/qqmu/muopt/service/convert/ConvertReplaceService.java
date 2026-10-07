@@ -2,12 +2,12 @@ package com.qqmu.muopt.service.convert;
 
 import com.qqmu.muopt.common.ConversionItem;
 import com.qqmu.muopt.common.ConvertScanTask;
+import com.qqmu.muopt.util.SourceFiles;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -115,7 +115,8 @@ public class ConvertReplaceService {
             throw new IOException("文件不存在: " + filePath);
         }
 
-        String content = Files.readString(path, StandardCharsets.UTF_8);
+        SourceFiles.Source source = SourceFiles.read(path);
+        String content = source.text();
         FileReplaceOutcome outcome = new FileReplaceOutcome();
 
         // 有区间的按位置替换：必须从后往前，否则前面的改动会让后面的下标全部错位
@@ -146,7 +147,7 @@ public class ConvertReplaceService {
 
         if (outcome.matchedItems > 0) {
             createBackupIfAbsent(path);
-            Files.writeString(path, content, StandardCharsets.UTF_8);
+            SourceFiles.write(path, content, source.charset());
             log.info("文件已更新: {}，{} 个条目共替换 {} 处",
                     filePath, outcome.matchedItems, outcome.occurrences);
         }

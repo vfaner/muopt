@@ -11,6 +11,7 @@
     <script src="/libs/element-plus.index.full.min.js"></script>
     <script src="/libs/axios.min.js"></script>
     <script src="/page-state.js"></script>
+    <script src="/sidebar.js"></script>
     <script src="/menu-groups.js"></script>
     <script src="/auth.js"></script>
 </head>
@@ -28,67 +29,7 @@
         <div id="menuOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;"></div>
 
         <!-- 左侧菜单 - 完整，不会消失 -->
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <h1>MuOpt <span style="font-size:14px;font-weight:normal;">v1.1.0</span></h1>
-                <p>沐优 - SQL优化与信创转换</p>
-            </div>
-            <nav class="menu">
-                <div class="menu-group" data-group="optimize">
-                    <div class="menu-group-title">
-                        <span class="menu-icon">🚀</span><span>SQL 优化</span>
-                        <span class="menu-group-arrow">▾</span>
-                    </div>
-                    <div class="menu-group-items">
-                        <a href="/manual.html" class="menu-item">
-                            <span class="menu-icon">✏️</span><span>手工优化</span>
-                        </a>
-                        <a href="/auto.html" class="menu-item active">
-                            <span class="menu-icon">🔍</span><span>扫描优化</span>
-                        </a>
-                    </div>
-                </div>
-                <div class="menu-group" data-group="convert">
-                    <div class="menu-group-title">
-                        <span class="menu-icon">🔄</span><span>SQL 转换</span>
-                        <span class="menu-group-arrow">▾</span>
-                    </div>
-                    <div class="menu-group-items">
-                        <a href="/convert-manual.html" class="menu-item">
-                            <span class="menu-icon">✏️</span><span>手工转换</span>
-                        </a>
-                        <a href="/convert-auto.html" class="menu-item">
-                            <span class="menu-icon">🔍</span><span>扫描转换</span>
-                        </a>
-                    </div>
-                </div>
-                <a href="/explain.html" class="menu-item">
-                    <span class="menu-icon">📊</span><span>SQL执行计划</span>
-                </a>
-                <a href="/datasource.html" class="menu-item">
-                    <span class="menu-icon">🔗</span><span>数据源配置</span>
-                </a>
-                <a href="/ai.html" class="menu-item">
-                    <span class="menu-icon">🤖</span><span>AI模型配置</span>
-                </a>
-                <a href="/about.html" class="menu-item">
-                    <span class="menu-icon">ℹ️</span><span>关于我们</span>
-                </a>
-                <a href="/profile.html" class="menu-item">
-                    <span class="menu-icon">⚙️</span><span>个人中心</span>
-                </a>
-            </nav>
-            <div class="sidebar-footer">
-                <div class="user-chip">
-                    <span class="user-avatar">👤</span>
-                    <div class="user-chip-info">
-                        <div class="user-nickname" data-user-nickname>加载中…</div>
-                        <div class="user-account" data-user-account></div>
-                    </div>
-                </div>
-                <a href="javascript:;" class="logout-link js-logout">🚪 退出登录</a>
-            </div>
-        </aside>
+        <aside id="sidebar" class="sidebar"></aside>
         <div class="app-container">
 
             <main class="main-content">
@@ -589,22 +530,6 @@
                         startPolling(savedJob.jobId, savedJob.beganAt || Date.now());
                     }
 
-                    // 移动端菜单控制：点击展开/收起，按钮图标联动切换
-                    const menuBtn = document.getElementById('mobileMenuBtn');
-                    const sidebar = document.querySelector('.sidebar');
-                    const overlay = document.getElementById('menuOverlay');
-
-                    if (menuBtn && sidebar && overlay) {
-                        const setMenu = (open) => {
-                            sidebar.classList.toggle('mobile-open', open);
-                            overlay.style.display = open ? 'block' : 'none';
-                            menuBtn.innerHTML = open ? '✕ 关闭' : '☰ 菜单';
-                        };
-                        menuBtn.addEventListener('click', () => setMenu(!sidebar.classList.contains('mobile-open')));
-                        overlay.addEventListener('click', () => setMenu(false));
-                        sidebar.querySelectorAll('.menu-item').forEach(a =>
-                            a.addEventListener('click', () => setMenu(false)));
-                    }
                 });
 
                 return { projectPath, enableAi, items, activeNames, loading, waitingSec, scanned,

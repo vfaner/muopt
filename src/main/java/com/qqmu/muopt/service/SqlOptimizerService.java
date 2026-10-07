@@ -1,6 +1,7 @@
 package com.qqmu.muopt.service;
 
 import com.qqmu.muopt.common.IndexSuggestion;
+import com.qqmu.muopt.util.IndexDdl;
 import com.qqmu.muopt.common.OptimizeResult;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
@@ -98,7 +99,7 @@ public class SqlOptimizerService {
 
         // 4. 生成索引名与 CREATE 语句
         for (IndexSuggestion s : suggestions) {
-            fillCreateSql(s);
+            IndexDdl.fill(s);
         }
         result.setIndexSuggestions(suggestions);
 
@@ -154,21 +155,6 @@ public class SqlOptimizerService {
         result.getTips().add(reason + "；本地规则未发现可安全自动改写的写法，原 SQL 保持不变，"
                 + "可参考索引建议与优化提示手动调整。");
         return sql;
-    }
-
-    /**
-     * 生成索引名与 CREATE INDEX 语句
-     */
-    private void fillCreateSql(IndexSuggestion s) {
-        String idxName = "idx_" + s.getTableName().toLowerCase() + "_"
-                + String.join("_", s.getColumns()).toLowerCase();
-        // 索引名过长时截断
-        if (idxName.length() > 60) {
-            idxName = idxName.substring(0, 60);
-        }
-        s.setIndexName(idxName);
-        String cols = String.join(", ", s.getColumns());
-        s.setCreateSql("CREATE INDEX " + idxName + " ON " + s.getTableName() + " (" + cols + ");");
     }
 
     /**

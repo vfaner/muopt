@@ -48,7 +48,10 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        filterChain.doFilter(request, response);
+        // 其余未分类路径默认拒绝：白名单之外不放行，保证将来新增端点不会绕过登录网关
+        response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"code\":404,\"message\":\"资源不存在\"}");
     }
 
     private boolean isLoggedIn(HttpServletRequest request) {
@@ -58,6 +61,7 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private boolean isPublic(String uri) {
         return uri.equals("/login.html")
+                || uri.equals("/error")
                 || uri.startsWith("/api/auth/")
                 || uri.startsWith("/libs/")
                 || uri.startsWith("/image/")

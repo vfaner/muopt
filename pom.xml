@@ -32,12 +32,6 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Spring Boot Validation -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-validation</artifactId>
-        </dependency>
-
         <!-- JDBC + HikariCP 连接池 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -72,13 +66,6 @@
             <groupId>com.github.jsqlparser</groupId>
             <artifactId>jsqlparser</artifactId>
             <version>${jsqlparser.version}</version>
-        </dependency>
-
-        <!-- OkHttp for API calls -->
-        <dependency>
-            <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp</artifactId>
-            <version>4.12.0</version>
         </dependency>
 
         <!-- Jackson for JSON -->
@@ -148,11 +135,6 @@
             <artifactId>yashandb-jdbc</artifactId>
             <version>1.10.7</version>
         </dependency>
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <scope>runtime</scope>
-        </dependency>
 
         <!-- ========================================
              驱动内置说明：
@@ -180,6 +162,26 @@
     </dependencies>
 
     <build>
+        <!-- 资源处理：sidebar.js 走 filtering 注入版本号（@project.version@），其余资源原样拷贝。
+             一旦自定义 <resources>，spring-boot-starter-parent 的默认资源配置即被覆盖，
+             故两条都要显式声明。 -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>static/sidebar.js</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>static/sidebar.js</exclude>
+                </excludes>
+            </resource>
+        </resources>
+
         <!-- 产物固定名 muopt.jar（不带版本号）：自更新是"下载新 jar 覆盖当前 jar 同一路径"，
              带版本号会在升级后出现"文件名 1.1.0、内容 1.2.0"的名实不符；版本号由 pom version
              打进应用并在关于页展示，release 用 tag 标版本 -->

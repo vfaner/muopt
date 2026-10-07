@@ -39,21 +39,22 @@ public class AuthController {
         String username = request.getUsername() == null ? "" : request.getUsername().trim();
         String password = request.getPassword() == null ? "" : request.getPassword();
 
-        int locked = loginGuard.lockRemaining(username);
+        String clientIp = clientIp(req);
+        int locked = loginGuard.lockRemaining(username, clientIp);
         if (locked > 0) {
             return Result.error(423, "登录失败次数过多，账户已锁定，请 " + locked + " 分钟后再试");
         }
 
         User user = userService.authenticate(username, password);
         if (user == null) {
-            if (loginGuard.recordFailure(username) > 0) {
-                return Result.error(423, "连续登录失败 " + LoginGuard.MAX_FAILURES + " 次，账户已锁定 " + LoginGuard.LOCK_MINUTES + " 分钟，请稍后再试");
+            if (loginGuard.recordFailure(username, clientIp) > 0) {
+                return Result.error(423, "连续登录失败次数过多，账户已锁定 " + LoginGuard.LOCK_MINUTES + " 分钟，请稍后再试");
             }
-            int left = loginGuard.remainingAttempts(username);
+            int left = loginGuard.remainingAttempts(username, clientIp);
             return Result.error(401, "账号或密码错误，还可尝试 " + left + " 次");
         }
 
-        loginGuard.clear(username);
+        loginGuard.clear(username, clientIp);
         req.getSession(true).setAttribute(SESSION_USER_ID, user.getId());
         return Result.success(UserView.of(user));
     }
@@ -96,6 +97,15 @@ public class AuthController {
             session.invalidate();
         }
         return Result.success(null);
+    }
+
+    /**
+     * 客户端 IP：直接取 TCP 连接的 remoteAddr。不读 X-Forwarded-For——默认部署没有
+     * 反向代理，该头可被任意伪造，攻击者每请求换一个假 IP 即可绕过单 IP 限流。
+     * 如部署在反向代理之后，请在网关上覆写该头并在此调整取值。
+     */
+    private String clientIp(HttpServletRequest req) {
+        return req.getRemoteAddr();
     }
 
     private User currentUser(HttpServletRequest req) {

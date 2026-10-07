@@ -47,7 +47,8 @@ public class OptimizeController {
         if (request.getSql() == null || request.getSql().trim().isEmpty()) {
             return Result.error(400, "SQL 不能为空");
         }
-        String jobId = jobManager.start(request.getSql(), request.isEnableAi());
+        String jobId = jobManager.start(
+                new OptimizeJobManager.Task(request.getSql(), request.isEnableAi()));
         return Result.success(new StartResponse(jobId));
     }
 
@@ -56,7 +57,7 @@ public class OptimizeController {
      */
     @GetMapping("/optimize/jobs/{jobId}")
     public Result<JobView> optimizeJobStatus(@PathVariable String jobId) {
-        OptimizeJobManager.Job job = jobManager.get(jobId);
+        com.qqmu.muopt.service.job.Job<OptimizeJobManager.Task, OptimizeResult> job = jobManager.get(jobId);
         if (job == null) {
             return Result.error(404, "优化任务不存在或已过期（服务可能重启过），请重新优化");
         }
@@ -180,7 +181,7 @@ public class OptimizeController {
         private long finishedAt;
         private OptimizeResult result;
 
-        static JobView of(OptimizeJobManager.Job job) {
+        static JobView of(com.qqmu.muopt.service.job.Job<OptimizeJobManager.Task, OptimizeResult> job) {
             JobView v = new JobView();
             v.jobId = job.getJobId();
             v.status = job.getStatus();

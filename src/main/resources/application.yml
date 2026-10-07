@@ -30,8 +30,10 @@ spring:
 
 # 数据库密码 / AI API Key 落库加密口令（生产环境请通过环境变量覆盖）
 app:
-  # 当前版本号：与 pom.xml 的 <version> 保持一致，用于「关于我们」判断是否有新版可更新
-  version: ${APP_VERSION:1.1.0}
+  # 当前版本号：构建时由 Maven resource filtering 注入 pom.xml 的 <version>（@...@ 为
+  # spring-boot-starter-parent 约定的过滤占位符），仍允许 APP_VERSION 环境变量覆盖。
+  # 版本号只在 pom.xml 一处维护，避免双处硬编码漏同步。
+  version: ${APP_VERSION:@project.version@}
   # 配置库目录（数据库连接、AI 模型都保存在这里），默认 ./data，可用 APP_DATA_DIR 覆盖为绝对路径
   data:
     dir: ${APP_DATA_DIR:./data}

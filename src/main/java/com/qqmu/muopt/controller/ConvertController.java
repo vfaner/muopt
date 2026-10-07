@@ -97,14 +97,15 @@ public class ConvertController {
         if (err != null) {
             return Result.error(400, err);
         }
-        String jobId = polishJobManager.start(request.getSourceSql(), request.getTargetDb());
+        String jobId = polishJobManager.start(
+                new ConvertPolishJobManager.Task(request.getSourceSql(), request.getTargetDb()));
         return Result.success(new PolishStartResponse(jobId));
     }
 
     /** 查询手工转换润色任务状态；SUCCESS 时携带结果，任务不存在返回 404。 */
     @GetMapping("/polish/jobs/{jobId}")
     public Result<PolishJobView> polishJobStatus(@PathVariable String jobId) {
-        ConvertPolishJobManager.Job job = polishJobManager.get(jobId);
+        com.qqmu.muopt.service.job.Job<ConvertPolishJobManager.Task, String> job = polishJobManager.get(jobId);
         if (job == null) {
             return Result.error(404, "润色任务不存在或已过期（服务可能重启过），请重新转换");
         }
@@ -374,7 +375,7 @@ public class ConvertController {
         private long finishedAt;
         private ConvertResponse result;
 
-        static PolishJobView of(ConvertPolishJobManager.Job job) {
+        static PolishJobView of(com.qqmu.muopt.service.job.Job<ConvertPolishJobManager.Task, String> job) {
             PolishJobView v = new PolishJobView();
             v.jobId = job.getJobId();
             v.status = job.getStatus();
@@ -382,8 +383,8 @@ public class ConvertController {
             v.startedAt = job.getStartedAt();
             v.finishedAt = job.getFinishedAt();
             if (job.getStatus().equals("SUCCESS")) {
-                v.result = new ConvertResponse(job.getSourceSql(), job.getConvertedSql(),
-                        job.getTargetDb(), true);
+                v.result = new ConvertResponse(job.getParams().sourceSql(), job.getResult(),
+                        job.getParams().targetDb(), true);
             }
             return v;
         }

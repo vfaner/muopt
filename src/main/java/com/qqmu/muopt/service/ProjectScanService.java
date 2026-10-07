@@ -8,7 +8,8 @@ import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import com.qqmu.muopt.util.SourceFiles;
+
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -118,7 +119,8 @@ public class ProjectScanService {
         List<ScanItem> items = new ArrayList<>();
         int[] counter = {0};
 
-        try (Stream<Path> stream = Files.walk(root)) {
+        // 限深 20 层（与转换扫描一致）：防异常超深目录树导致长时间遍历
+        try (Stream<Path> stream = Files.walk(root, 20)) {
             List<Path> files = stream
                     .filter(Files::isRegularFile)
                     .filter(p -> !isInSkippedDir(root, p))
@@ -331,7 +333,7 @@ public class ProjectScanService {
     // ---------- XML（MyBatis） ----------
 
     private void extractFromXml(Path root, Path file, List<ScanItem> items, int[] counter) throws IOException {
-        String content = Files.readString(file, StandardCharsets.UTF_8);
+        String content = SourceFiles.read(file).text();
         // 仅处理疑似 MyBatis 映射文件
         if (!content.contains("<mapper") && !MYBATIS_TAG.matcher(content).find()) {
             return;
@@ -375,7 +377,7 @@ public class ProjectScanService {
     // ---------- Java 源码字符串 ----------
 
     private void extractFromJava(Path root, Path file, List<ScanItem> items, int[] counter) throws IOException {
-        String content = Files.readString(file, StandardCharsets.UTF_8);
+        String content = SourceFiles.read(file).text();
         // 记录已被注解 SQL 消费的字符区间，避免普通字符串扫描重复抓取
         List<int[]> consumed = new ArrayList<>();
 
@@ -492,7 +494,7 @@ public class ProjectScanService {
     // ---------- 独立 .sql 文件 ----------
 
     private void extractFromSqlFile(Path root, Path file, List<ScanItem> items, int[] counter) throws IOException {
-        String content = Files.readString(file, StandardCharsets.UTF_8);
+        String content = SourceFiles.read(file).text();
         // 在原文上按顶层分号切分（跳过注释与字符串字面量中的分号），
         // 这样 rawText 能与文件原文逐字一致，行号与替换定位才准确。
         int segStart = 0;
@@ -666,7 +668,8 @@ public class ProjectScanService {
         // 参数占位符必须原样保留，否则会把参数绑定改成硬编码常量（业务逻辑被静默改错）
         assertPlaceholdersKept(item, optimizedSql);
         try {
-            String content = Files.readString(file, StandardCharsets.UTF_8);
+            SourceFiles.Source source = SourceFiles.read(file);
+            String content = source.text();
             String raw = item.getRawText();
             if (raw == null || raw.isEmpty()) {
                 throw new IllegalStateException("扫描记录缺少原始 SQL 文本，替换终止");
@@ -676,10 +679,12 @@ public class ProjectScanService {
             String replacement = buildReplacement(item, optimizedSql);
             String updated = content.substring(0, idx) + replacement + content.substring(idx + raw.length());
 
-            // 备份用唯一文件名，避免同一文件多次替换时把上一次的备份覆盖成已改动的内容
+            // 备份用唯一文件名；必须复制原始字节而非解码后的字符串——GBK 文件按字符串
+            // 重写备份同样会损坏，用户将无任何可恢复的原件。
             Path backup = uniqueBackupPath(file);
-            Files.writeString(backup, content, StandardCharsets.UTF_8);
-            Files.writeString(file, updated, StandardCharsets.UTF_8);
+            Files.copy(file, backup);
+            // 写回保持文件原编码；若优化结果含原编码无法表示的字符，write 会显式失败
+            SourceFiles.write(file, updated, source.charset());
             log.info("已替换 SQL 并备份: {} (备份: {})", file, backup.getFileName());
             return true;
         } catch (IOException e) {

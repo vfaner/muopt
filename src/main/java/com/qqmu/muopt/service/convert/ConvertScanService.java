@@ -3,10 +3,10 @@ package com.qqmu.muopt.service.convert;
 import com.qqmu.muopt.common.ConversionItem;
 import com.qqmu.muopt.common.ConvertScanTask;
 import com.qqmu.muopt.service.AiService;
+import com.qqmu.muopt.util.SourceFiles;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
@@ -449,7 +449,7 @@ public class ConvertScanService {
     }
 
     private void scanFile(Path file, ConvertScanTask task) throws IOException {
-        String content = Files.readString(file, StandardCharsets.UTF_8);
+        String content = SourceFiles.read(file).text();
         String fileName = file.getFileName().toString().toLowerCase();
 
         List<SqlFragment> fragments = new ArrayList<>();

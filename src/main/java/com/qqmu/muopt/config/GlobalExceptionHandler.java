@@ -36,7 +36,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public Result<?> handleException(Exception e) {
+        // 详情（SQL、绝对路径、连接串、驱动错误等）只入日志；响应只回通用提示，
+        // 避免把内部实现信息暴露给客户端。
         log.error("系统异常", e);
-        return Result.error("系统异常: " + e.getMessage());
+        return Result.error("系统繁忙，请稍后重试；如持续失败请查看服务端日志获取详情");
     }
 }
