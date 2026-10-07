@@ -224,7 +224,8 @@
 
                 const donateVisible = ref(false);
                 const updateStatus = ref('checking'); // checking / latest / outdated / failed
-                const currentVersion = 'v1.1.0';
+                // 版本号由 sidebar.js 的 MUOPT_VERSION（Maven 过滤注入）提供，避免硬编码漏改
+                const currentVersion = 'v' + (typeof MUOPT_VERSION !== 'undefined' ? MUOPT_VERSION : '1.1.1');
                 // 远程最新版本：初始即当前版本，请求不到时也保持当前版本（默认显示当前版本）
                 const latestVersion = ref(currentVersion);
                 const repoOwner = 'vfaner';        // GitHub 仓库 owner

@@ -13,7 +13,7 @@
 
     <groupId>com.qqmu</groupId>
     <artifactId>muopt</artifactId>
-    <version>1.1.0</version>
+    <version>1.1.1</version>
     <packaging>jar</packaging>
 
     <name>MuOpt</name>

@@ -63,7 +63,7 @@ public class UpdateService {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    public UpdateService(@Value("${app.version:1.1.0}") String currentVersion) {
+    public UpdateService(@Value("${app.version:1.1.1}") String currentVersion) {
         this.currentVersion = currentVersion == null ? "" : currentVersion.trim().replaceFirst("^v", "");
     }
 
